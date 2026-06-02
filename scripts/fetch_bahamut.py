@@ -1,5 +1,5 @@
 import requests
-import re
+from bs4 import BeautifulSoup
 
 url = "https://forum.gamer.com.tw/B.php?bsn=84232"
 
@@ -11,12 +11,15 @@ r = requests.get(url, headers=headers)
 
 print("Status:", r.status_code)
 
-html = r.text
+soup = BeautifulSoup(r.text, "html.parser")
 
-# 测试抓取标题
-titles = re.findall(r'data-gtm-forum-list-title="([^"]+)"', html)
+# 先测试所有a标签
+links = soup.find_all("a")
 
-print("标题数量:", len(titles))
+print("链接数量:", len(links))
 
-for t in titles[:20]:
-    print(t)
+for link in links[:50]:
+    text = link.get_text(strip=True)
+
+    if text:
+        print(text)
