@@ -20,7 +20,7 @@ def classify_topic(title):
         return "BUG/技术问题"
     if "課金" in title or "儲值" in title or "商城" in title or "禮包" in title:
         return "付费问题"
-    if "職業" in title or "正派" in title or "邪派":
+    if "職業" in title or "正派" in title or "邪派" in title:
         return "职业/门派"
     if "活動" in title or "獎勵" in title or "補償" in title:
         return "活动反馈"
@@ -76,9 +76,7 @@ def fetch_bahamut_topics():
 def write_to_sheet(topics):
     service_account_info = json.loads(os.environ["GOOGLE_SERVICE_ACCOUNT_JSON"])
 
-    scopes = [
-        "https://www.googleapis.com/auth/spreadsheets"
-    ]
+    scopes = ["https://www.googleapis.com/auth/spreadsheets"]
 
     credentials = Credentials.from_service_account_info(
         service_account_info,
@@ -88,9 +86,21 @@ def write_to_sheet(topics):
     client = gspread.authorize(credentials)
     sheet = client.open_by_key(SPREADSHEET_ID).worksheet(SHEET_NAME)
 
+    existing_urls = set()
+
+    existing_rows = sheet.get_all_records()
+
+    for row in existing_rows:
+        url = row.get("url")
+        if url:
+            existing_urls.add(url)
+
     rows = []
 
     for item in topics:
+        if item["url"] in existing_urls:
+            continue
+
         rows.append([
             item["collect_time"],
             item["source"],
@@ -102,11 +112,11 @@ def write_to_sheet(topics):
     if rows:
         sheet.append_rows(rows, value_input_option="USER_ENTERED")
 
-    print("写入Google Sheet数量:", len(rows))
+    print("本次抓到帖子数量:", len(topics))
+    print("去重后新增写入数量:", len(rows))
 
 if __name__ == "__main__":
     topics = fetch_bahamut_topics()
-    print("抓到帖子数量:", len(topics))
 
     for topic in topics[:10]:
         print(topic["title"], topic["topic"])
