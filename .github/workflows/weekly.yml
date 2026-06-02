@@ -19,9 +19,9 @@ jobs:
           python-version: "3.11"
 
       - name: Install Dependencies
-        run: pip install requests beautifulsoup4 gspread google-auth
+        run: pip install requests beautifulsoup4 gspread google-auth google-play-scraper
 
-      - name: Fetch Bahamut
+      - name: Fetch Monitor Data
         env:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
         run: python scripts/fetch_bahamut.py
