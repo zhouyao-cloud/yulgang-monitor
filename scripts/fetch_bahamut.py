@@ -1,16 +1,23 @@
 import os
 import json
+import hashlib
 import requests
 import gspread
 from bs4 import BeautifulSoup
 from datetime import datetime
 from google.oauth2.service_account import Credentials
 from google_play_scraper import reviews, Sort
+from app_store_scraper import AppStore
 
 BASE_URL = "https://forum.gamer.com.tw"
 BOARD_URL = "https://forum.gamer.com.tw/B.php?bsn=84232"
+
 GOOGLE_PLAY_APP_ID = "com.mover.twrxjhw"
 GOOGLE_PLAY_URL = "https://play.google.com/store/apps/details?id=com.mover.twrxjhw"
+
+APP_STORE_APP_ID = 6756000886
+APP_STORE_APP_NAME = "新熱血江湖-世界"
+APP_STORE_URL = "https://apps.apple.com/app/id6756000886"
 
 SPREADSHEET_ID = "14Y_HbfXTNYvkbufc5tgys2YGl4msBWASbggllNCfLyQ"
 SHEET_NAME = "raw_data"
@@ -93,12 +100,11 @@ def fetch_google_play_reviews():
             content = item.get("content", "")
             score = item.get("score", "")
             review_id = item.get("reviewId", "")
-            at = item.get("at", "")
 
             if not content:
                 continue
 
-            title = f"【{score}星評論】{content[:80]}"
+            title = f"【Google Play {score}星】{content[:80]}"
             unique_url = f"{GOOGLE_PLAY_URL}#review-{review_id}"
 
             gp_rows.append({
@@ -115,6 +121,49 @@ def fetch_google_play_reviews():
         print("Google Play 抓取失败:", str(e))
 
     return gp_rows
+
+def fetch_app_store_reviews():
+    app_rows = []
+
+    try:
+        app = AppStore(
+            country="tw",
+            app_name=APP_STORE_APP_NAME,
+            app_id=APP_STORE_APP_ID
+        )
+
+        app.review(how_many=100)
+
+        for item in app.reviews:
+            content = item.get("review", "")
+            rating = item.get("rating", "")
+            title_text = item.get("title", "")
+            date_text = str(item.get("date", ""))
+
+            if not content and not title_text:
+                continue
+
+            raw_key = f"{title_text}_{content}_{rating}_{date_text}"
+            review_hash = hashlib.md5(raw_key.encode("utf-8")).hexdigest()
+
+            combined_text = f"{title_text} {content}".strip()
+            title = f"【App Store {rating}星】{combined_text[:80]}"
+            unique_url = f"{APP_STORE_URL}#review-{review_hash}"
+
+            app_rows.append({
+                "collect_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "source": "App Store",
+                "topic": classify_topic(combined_text),
+                "title": title,
+                "url": unique_url
+            })
+
+        print("App Store 抓到评论数量:", len(app_rows))
+
+    except Exception as e:
+        print("App Store 抓取失败:", str(e))
+
+    return app_rows
 
 def write_to_sheet(items):
     service_account_info = json.loads(os.environ["GOOGLE_SERVICE_ACCOUNT_JSON"])
@@ -160,8 +209,9 @@ def write_to_sheet(items):
 if __name__ == "__main__":
     bahamut_items = fetch_bahamut_topics()
     google_play_items = fetch_google_play_reviews()
+    app_store_items = fetch_app_store_reviews()
 
-    all_items = bahamut_items + google_play_items
+    all_items = bahamut_items + google_play_items + app_store_items
 
     for item in all_items[:10]:
         print(item["source"], item["title"], item["topic"])
