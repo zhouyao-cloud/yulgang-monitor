@@ -5,12 +5,9 @@ workflow_dispatch:
 
 jobs:
 monitor:
-
-```
 runs-on: ubuntu-latest
 
 steps:
-
   - name: Checkout Repository
     uses: actions/checkout@v4
 
@@ -26,4 +23,3 @@ steps:
 
   - name: Fetch Bahamut
     run: python scripts/fetch_bahamut.py
-```
