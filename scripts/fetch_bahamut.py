@@ -26,22 +26,49 @@ REPORT_SHEET_NAME = "weekly_report"
 
 headers = {"User-Agent": "Mozilla/5.0"}
 
+NEGATIVE_WORDS = [
+    "爛", "差", "卡", "閃退", "登入", "異常", "BUG", "外掛", "工作室",
+    "課金", "儲值", "騙", "退坑", "不玩", "無聊", "垃圾", "失望",
+    "不能", "沒辦法", "黑屏", "掉線", "延遲", "坑", "貴"
+]
+
+POSITIVE_WORDS = [
+    "好玩", "不錯", "讚", "佛", "喜歡", "順", "推薦", "懷念", "經典",
+    "爽", "好看", "有趣"
+]
+
+KEYWORDS = [
+    "外掛", "工作室", "閃退", "登入", "卡", "BUG", "課金", "儲值",
+    "禮包", "商城", "活動", "補償", "獎勵", "職業", "正派", "邪派",
+    "掛機", "離線", "經驗", "伺服器", "黑屏", "退坑", "爆率"
+]
+
 def classify_topic(text):
-    if "BUG" in text or "異常" in text or "閃退" in text or "卡" in text or "黑屏" in text or "登入" in text:
+    if any(w in text for w in ["BUG", "異常", "閃退", "卡", "黑屏", "登入", "掉線", "延遲"]):
         return "BUG/技术问题"
-    if "課金" in text or "儲值" in text or "商城" in text or "禮包" in text or "錢" in text:
+    if any(w in text for w in ["課金", "儲值", "商城", "禮包", "錢", "貴"]):
         return "付费问题"
-    if "職業" in text or "正派" in text or "邪派" in text:
+    if any(w in text for w in ["職業", "正派", "邪派"]):
         return "职业/门派"
-    if "活動" in text or "獎勵" in text or "補償" in text:
+    if any(w in text for w in ["活動", "獎勵", "補償"]):
         return "活动反馈"
-    if "外掛" in text or "工作室" in text:
+    if any(w in text for w in ["外掛", "工作室"]):
         return "外挂/工作室"
-    if "攻略" in text or "心得" in text:
+    if any(w in text for w in ["攻略", "心得"]):
         return "攻略心得"
-    if "問題" in text or "請問" in text:
+    if any(w in text for w in ["問題", "請問"]):
         return "玩家问题"
     return "其他"
+
+def classify_sentiment(text):
+    negative_score = sum(1 for w in NEGATIVE_WORDS if w in text)
+    positive_score = sum(1 for w in POSITIVE_WORDS if w in text)
+
+    if negative_score > positive_score:
+        return "负面"
+    if positive_score > negative_score:
+        return "正面"
+    return "中立"
 
 def fetch_bahamut_topics():
     r = requests.get(BOARD_URL, headers=headers)
@@ -70,6 +97,7 @@ def fetch_bahamut_topics():
                 "collect_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "source": "Bahamut",
                 "topic": classify_topic(text),
+                "sentiment": classify_sentiment(text),
                 "title": text,
                 "url": full_url
             })
@@ -96,11 +124,21 @@ def fetch_google_play_reviews():
             if not content:
                 continue
 
+            title = f"【Google Play {score}星】{content[:80]}"
+
+            if score <= 2:
+                sentiment = "负面"
+            elif score >= 4:
+                sentiment = "正面"
+            else:
+                sentiment = classify_sentiment(content)
+
             rows.append({
                 "collect_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "source": "Google Play",
                 "topic": classify_topic(content),
-                "title": f"【Google Play {score}星】{content[:80]}",
+                "sentiment": sentiment,
+                "title": title,
                 "url": f"{GOOGLE_PLAY_URL}#review-{review_id}"
             })
 
@@ -130,10 +168,18 @@ def fetch_app_store_reviews():
             combined = f"{title_text} {content}".strip()
             review_hash = hashlib.md5(f"{combined}_{rating}_{date_text}".encode("utf-8")).hexdigest()
 
+            if rating <= 2:
+                sentiment = "负面"
+            elif rating >= 4:
+                sentiment = "正面"
+            else:
+                sentiment = classify_sentiment(combined)
+
             rows.append({
                 "collect_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "source": "App Store",
                 "topic": classify_topic(combined),
+                "sentiment": sentiment,
                 "title": f"【App Store {rating}星】{combined[:80]}",
                 "url": f"{APP_STORE_URL}#review-{review_hash}"
             })
@@ -171,7 +217,8 @@ def write_raw_data(sheet, items):
             item["source"],
             item["topic"],
             item["title"],
-            item["url"]
+            item["url"],
+            item["sentiment"]
         ])
 
     if rows:
@@ -180,14 +227,15 @@ def write_raw_data(sheet, items):
     print("本次抓到总数量:", len(items))
     print("去重后新增写入数量:", len(rows))
 
-    return len(rows)
-
 def update_weekly_report(report_sheet, all_records):
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     source_counter = Counter()
     topic_counter = Counter()
+    sentiment_counter = Counter()
+    keyword_counter = Counter()
 
+    negative_items = []
     titles = []
 
     for row in all_records:
@@ -195,45 +243,77 @@ def update_weekly_report(report_sheet, all_records):
         topic = row.get("topic", "")
         title = row.get("title", "")
         url = row.get("url", "")
+        sentiment = row.get("sentiment", "")
 
         if source:
             source_counter[source] += 1
-
         if topic:
             topic_counter[topic] += 1
+        if sentiment:
+            sentiment_counter[sentiment] += 1
+
+        for kw in KEYWORDS:
+            if kw in title:
+                keyword_counter[kw] += 1
+
+        if sentiment == "负面" or topic in ["BUG/技术问题", "付费问题", "外挂/工作室"]:
+            negative_items.append((title, topic, source, url))
 
         if title:
-            titles.append((title, topic, source, url))
+            titles.append((title, topic, sentiment, source, url))
+
+    total = len(all_records)
+    negative_count = sentiment_counter.get("负面", 0)
+    negative_rate = f"{round(negative_count / total * 100, 1)}%" if total else "0%"
 
     report_rows = []
 
+    report_rows.append(["《新熱血江湖：世界》舆情分析看板"])
     report_rows.append(["更新时间", now])
-    report_rows.append(["总数据量", len(all_records)])
+    report_rows.append(["总数据量", total])
+    report_rows.append(["负面数量", negative_count])
+    report_rows.append(["负面占比", negative_rate])
     report_rows.append([])
+
     report_rows.append(["一、来源分布"])
     report_rows.append(["来源", "数量"])
-
     for source, count in source_counter.most_common():
         report_rows.append([source, count])
 
     report_rows.append([])
-    report_rows.append(["二、分类分布"])
-    report_rows.append(["分类", "数量"])
+    report_rows.append(["二、情绪分布"])
+    report_rows.append(["情绪", "数量"])
+    for sentiment, count in sentiment_counter.most_common():
+        report_rows.append([sentiment, count])
 
+    report_rows.append([])
+    report_rows.append(["三、分类分布"])
+    report_rows.append(["分类", "数量"])
     for topic, count in topic_counter.most_common():
         report_rows.append([topic, count])
 
     report_rows.append([])
-    report_rows.append(["三、最新内容TOP20"])
-    report_rows.append(["标题/评论", "分类", "来源", "链接"])
+    report_rows.append(["四、热门关键词TOP20"])
+    report_rows.append(["关键词", "出现次数"])
+    for kw, count in keyword_counter.most_common(20):
+        report_rows.append([kw, count])
 
-    for title, topic, source, url in titles[-20:][::-1]:
+    report_rows.append([])
+    report_rows.append(["五、负面反馈TOP20"])
+    report_rows.append(["标题/评论", "分类", "来源", "链接"])
+    for title, topic, source, url in negative_items[-20:][::-1]:
         report_rows.append([title, topic, source, url])
+
+    report_rows.append([])
+    report_rows.append(["六、最新内容TOP20"])
+    report_rows.append(["标题/评论", "分类", "情绪", "来源", "链接"])
+    for title, topic, sentiment, source, url in titles[-20:][::-1]:
+        report_rows.append([title, topic, sentiment, source, url])
 
     report_sheet.clear()
     report_sheet.update(report_rows)
 
-    print("weekly_report 已更新")
+    print("weekly_report 舆情看板已更新")
 
 if __name__ == "__main__":
     bahamut_items = fetch_bahamut_topics()
@@ -243,7 +323,7 @@ if __name__ == "__main__":
     all_items = bahamut_items + google_play_items + app_store_items
 
     for item in all_items[:10]:
-        print(item["source"], item["title"], item["topic"])
+        print(item["source"], item["title"], item["topic"], item["sentiment"])
 
     client = get_client()
     workbook = client.open_by_key(SPREADSHEET_ID)
