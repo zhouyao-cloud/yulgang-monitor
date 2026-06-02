@@ -20,7 +20,5 @@ print("链接数量:", len(links))
 for link in links[:50]:
 text = link.get_text(strip=True)
 
-```
 if text:
     print(text)
-```
