@@ -1,25 +1,17 @@
 name: Weekly Monitor
-
 on:
   workflow_dispatch:
-
 jobs:
   monitor:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
-
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-
       - name: Install Dependencies
-        run: |
-          pip install requests
-          pip install beautifulsoup4
-
+        run: pip install requests beautifulsoup4
       - name: Fetch Bahamut
         run: python scripts/fetch_bahamut.py
