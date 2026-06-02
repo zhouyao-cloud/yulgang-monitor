@@ -19,7 +19,8 @@ jobs:
           python-version: '3.11'
 
       - name: Install Requests
-        run: pip install requests
+      - name: Install Dependencies
+        run: pip install requests beautifulsoup4
 
       - name: Fetch Bahamut
         run: python scripts/fetch_bahamut.py
