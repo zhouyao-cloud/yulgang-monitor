@@ -18,8 +18,8 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Check Python Version
-        run: python --version
+      - name: Install Requests
+        run: pip install requests
 
-      - name: Run Script
-        run: python scripts/test.py
+      - name: Fetch Bahamut
+        run: python scripts/fetch_bahamut.py
