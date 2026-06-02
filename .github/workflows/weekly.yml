@@ -19,7 +19,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install Dependencies
-        run: pip install requests beautifulsoup4 gspread google-auth google-play-scraper
+        run: pip install requests beautifulsoup4 gspread google-auth google-play-scraper app-store-scraper
 
       - name: Fetch Monitor Data
         env:
