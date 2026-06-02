@@ -5,9 +5,13 @@ import gspread
 from bs4 import BeautifulSoup
 from datetime import datetime
 from google.oauth2.service_account import Credentials
+from google_play_scraper import reviews, Sort
 
 BASE_URL = "https://forum.gamer.com.tw"
 BOARD_URL = "https://forum.gamer.com.tw/B.php?bsn=84232"
+GOOGLE_PLAY_APP_ID = "com.mover.twrxjhw"
+GOOGLE_PLAY_URL = "https://play.google.com/store/apps/details?id=com.mover.twrxjhw"
+
 SPREADSHEET_ID = "14Y_HbfXTNYvkbufc5tgys2YGl4msBWASbggllNCfLyQ"
 SHEET_NAME = "raw_data"
 
@@ -15,26 +19,26 @@ headers = {
     "User-Agent": "Mozilla/5.0"
 }
 
-def classify_topic(title):
-    if "BUG" in title or "異常" in title or "閃退" in title or "卡" in title:
+def classify_topic(text):
+    if "BUG" in text or "異常" in text or "閃退" in text or "卡" in text or "黑屏" in text or "登入" in text:
         return "BUG/技术问题"
-    if "課金" in title or "儲值" in title or "商城" in title or "禮包" in title:
+    if "課金" in text or "儲值" in text or "商城" in text or "禮包" in text or "錢" in text:
         return "付费问题"
-    if "職業" in title or "正派" in title or "邪派" in title:
+    if "職業" in text or "正派" in text or "邪派" in text:
         return "职业/门派"
-    if "活動" in title or "獎勵" in title or "補償" in title:
+    if "活動" in text or "獎勵" in text or "補償" in text:
         return "活动反馈"
-    if "外掛" in title or "工作室" in title:
+    if "外掛" in text or "工作室" in text:
         return "外挂/工作室"
-    if "攻略" in title or "心得" in title:
+    if "攻略" in text or "心得" in text:
         return "攻略心得"
-    if "問題" in title or "請問" in title:
+    if "問題" in text or "請問" in text:
         return "玩家问题"
     return "其他"
 
 def fetch_bahamut_topics():
     r = requests.get(BOARD_URL, headers=headers)
-    print("Status:", r.status_code)
+    print("Bahamut Status:", r.status_code)
 
     soup = BeautifulSoup(r.text, "html.parser")
     links = soup.find_all("a")
@@ -73,7 +77,46 @@ def fetch_bahamut_topics():
 
     return unique_topics
 
-def write_to_sheet(topics):
+def fetch_google_play_reviews():
+    gp_rows = []
+
+    try:
+        result, _ = reviews(
+            GOOGLE_PLAY_APP_ID,
+            lang="zh_TW",
+            country="tw",
+            sort=Sort.NEWEST,
+            count=100
+        )
+
+        for item in result:
+            content = item.get("content", "")
+            score = item.get("score", "")
+            review_id = item.get("reviewId", "")
+            at = item.get("at", "")
+
+            if not content:
+                continue
+
+            title = f"【{score}星評論】{content[:80]}"
+            unique_url = f"{GOOGLE_PLAY_URL}#review-{review_id}"
+
+            gp_rows.append({
+                "collect_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "source": "Google Play",
+                "topic": classify_topic(content),
+                "title": title,
+                "url": unique_url
+            })
+
+        print("Google Play 抓到评论数量:", len(gp_rows))
+
+    except Exception as e:
+        print("Google Play 抓取失败:", str(e))
+
+    return gp_rows
+
+def write_to_sheet(items):
     service_account_info = json.loads(os.environ["GOOGLE_SERVICE_ACCOUNT_JSON"])
 
     scopes = ["https://www.googleapis.com/auth/spreadsheets"]
@@ -87,7 +130,6 @@ def write_to_sheet(topics):
     sheet = client.open_by_key(SPREADSHEET_ID).worksheet(SHEET_NAME)
 
     existing_urls = set()
-
     existing_rows = sheet.get_all_records()
 
     for row in existing_rows:
@@ -97,7 +139,7 @@ def write_to_sheet(topics):
 
     rows = []
 
-    for item in topics:
+    for item in items:
         if item["url"] in existing_urls:
             continue
 
@@ -112,13 +154,16 @@ def write_to_sheet(topics):
     if rows:
         sheet.append_rows(rows, value_input_option="USER_ENTERED")
 
-    print("本次抓到帖子数量:", len(topics))
+    print("本次抓到总数量:", len(items))
     print("去重后新增写入数量:", len(rows))
 
 if __name__ == "__main__":
-    topics = fetch_bahamut_topics()
+    bahamut_items = fetch_bahamut_topics()
+    google_play_items = fetch_google_play_reviews()
 
-    for topic in topics[:10]:
-        print(topic["title"], topic["topic"])
+    all_items = bahamut_items + google_play_items
 
-    write_to_sheet(topics)
+    for item in all_items[:10]:
+        print(item["source"], item["title"], item["topic"])
+
+    write_to_sheet(all_items)
