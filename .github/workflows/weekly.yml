@@ -24,4 +24,5 @@ jobs:
       - name: Fetch Monitor Data
         env:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
         run: python scripts/fetch_bahamut.py
