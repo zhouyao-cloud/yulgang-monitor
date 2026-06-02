@@ -16,7 +16,7 @@ GOOGLE_PLAY_APP_ID = "com.mover.twrxjhw"
 GOOGLE_PLAY_URL = "https://play.google.com/store/apps/details?id=com.mover.twrxjhw"
 
 APP_STORE_APP_ID = 6756000886
-APP_STORE_APP_NAME = "新熱血江湖-世界"
+APP_STORE_APP_NAME = "yulgang-world"
 APP_STORE_URL = "https://apps.apple.com/app/id6756000886"
 
 SPREADSHEET_ID = "14Y_HbfXTNYvkbufc5tgys2YGl4msBWASbggllNCfLyQ"
