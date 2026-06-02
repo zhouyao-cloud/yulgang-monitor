@@ -1,4 +1,5 @@
 import requests
+import re
 
 url = "https://forum.gamer.com.tw/B.php?bsn=84232"
 
@@ -9,4 +10,13 @@ headers = {
 r = requests.get(url, headers=headers)
 
 print("Status:", r.status_code)
-print(r.text[:500])
+
+html = r.text
+
+# 测试抓取标题
+titles = re.findall(r'data-gtm-forum-list-title="([^"]+)"', html)
+
+print("标题数量:", len(titles))
+
+for t in titles[:20]:
+    print(t)
