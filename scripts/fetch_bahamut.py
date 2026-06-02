@@ -24,6 +24,8 @@ SPREADSHEET_ID = "14Y_HbfXTNYvkbufc5tgys2YGl4msBWASbggllNCfLyQ"
 RAW_SHEET_NAME = "raw_data"
 REPORT_SHEET_NAME = "weekly_report"
 
+SHEET_URL = "https://docs.google.com/spreadsheets/d/14Y_HbfXTNYvkbufc5tgys2YGl4msBWASbggllNCfLyQ/edit"
+
 headers = {"User-Agent": "Mozilla/5.0"}
 
 NEGATIVE_WORDS = [
@@ -315,6 +317,79 @@ def update_weekly_report(report_sheet, all_records):
 
     print("weekly_report 舆情看板已更新")
 
+def build_feishu_summary(all_records):
+    source_counter = Counter()
+    topic_counter = Counter()
+    sentiment_counter = Counter()
+    keyword_counter = Counter()
+
+    for row in all_records:
+        source = row.get("source", "")
+        topic = row.get("topic", "")
+        sentiment = row.get("sentiment", "")
+        title = row.get("title", "")
+
+        if source:
+            source_counter[source] += 1
+        if topic:
+            topic_counter[topic] += 1
+        if sentiment:
+            sentiment_counter[sentiment] += 1
+
+        for kw in KEYWORDS:
+            if kw in title:
+                keyword_counter[kw] += 1
+
+    total = len(all_records)
+    negative = sentiment_counter.get("负面", 0)
+    negative_rate = f"{round(negative / total * 100, 1)}%" if total else "0%"
+
+    source_text = "\n".join([f"- {k}：{v}" for k, v in source_counter.most_common()])
+    topic_text = "\n".join([f"- {k}：{v}" for k, v in topic_counter.most_common(5)])
+    keyword_text = "\n".join([f"- {k}：{v}" for k, v in keyword_counter.most_common(10)])
+
+    return f"""【新熱血江湖：世界 舆情监控周报】
+
+更新时间：{datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+
+总数据量：{total}
+负面数量：{negative}
+负面占比：{negative_rate}
+
+一、来源分布
+{source_text}
+
+二、主要问题分类TOP5
+{topic_text}
+
+三、热门关键词TOP10
+{keyword_text}
+
+完整看板：
+{SHEET_URL}
+"""
+
+def send_feishu_message(text):
+    webhook = os.environ.get("FEISHU_WEBHOOK")
+
+    if not webhook:
+        print("未配置 FEISHU_WEBHOOK，跳过飞书推送")
+        return
+
+    payload = {
+        "msg_type": "text",
+        "content": {
+            "text": text
+        }
+    }
+
+    try:
+        response = requests.post(webhook, json=payload, timeout=20)
+        print("飞书推送状态:", response.status_code)
+        print(response.text)
+    except Exception as e:
+        print("飞书推送失败:", str(e))
+
 if __name__ == "__main__":
     bahamut_items = fetch_bahamut_topics()
     google_play_items = fetch_google_play_reviews()
@@ -335,3 +410,6 @@ if __name__ == "__main__":
 
     all_records = raw_sheet.get_all_records()
     update_weekly_report(report_sheet, all_records)
+
+    feishu_text = build_feishu_summary(all_records)
+    send_feishu_message(feishu_text)
