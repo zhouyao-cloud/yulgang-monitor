@@ -23,7 +23,6 @@ APP_STORE_URL = "https://apps.apple.com/app/id6756000886"
 SPREADSHEET_ID = "14Y_HbfXTNYvkbufc5tgys2YGl4msBWASbggllNCfLyQ"
 RAW_SHEET_NAME = "raw_data"
 REPORT_SHEET_NAME = "weekly_report"
-
 SHEET_URL = "https://docs.google.com/spreadsheets/d/14Y_HbfXTNYvkbufc5tgys2YGl4msBWASbggllNCfLyQ/edit"
 
 headers = {"User-Agent": "Mozilla/5.0"}
@@ -45,6 +44,9 @@ KEYWORDS = [
     "掛機", "離線", "經驗", "伺服器", "黑屏", "退坑", "爆率"
 ]
 
+RISK_TOPICS = ["BUG/技术问题", "付费问题", "外挂/工作室"]
+
+
 def classify_topic(text):
     if any(w in text for w in ["BUG", "異常", "閃退", "卡", "黑屏", "登入", "掉線", "延遲"]):
         return "BUG/技术问题"
@@ -62,6 +64,7 @@ def classify_topic(text):
         return "玩家问题"
     return "其他"
 
+
 def classify_sentiment(text):
     negative_score = sum(1 for w in NEGATIVE_WORDS if w in text)
     positive_score = sum(1 for w in POSITIVE_WORDS if w in text)
@@ -71,6 +74,7 @@ def classify_sentiment(text):
     if positive_score > negative_score:
         return "正面"
     return "中立"
+
 
 def fetch_bahamut_topics():
     r = requests.get(BOARD_URL, headers=headers)
@@ -105,6 +109,7 @@ def fetch_bahamut_topics():
             })
 
     return topics
+
 
 def fetch_google_play_reviews():
     rows = []
@@ -151,6 +156,7 @@ def fetch_google_play_reviews():
 
     return rows
 
+
 def fetch_app_store_reviews():
     rows = []
 
@@ -193,11 +199,13 @@ def fetch_app_store_reviews():
 
     return rows
 
+
 def get_client():
     service_account_info = json.loads(os.environ["GOOGLE_SERVICE_ACCOUNT_JSON"])
     scopes = ["https://www.googleapis.com/auth/spreadsheets"]
     credentials = Credentials.from_service_account_info(service_account_info, scopes=scopes)
     return gspread.authorize(credentials)
+
 
 def write_raw_data(sheet, items):
     existing_urls = set()
@@ -229,6 +237,36 @@ def write_raw_data(sheet, items):
     print("本次抓到总数量:", len(items))
     print("去重后新增写入数量:", len(rows))
 
+
+def build_risk_level(negative_rate):
+    if negative_rate >= 30:
+        return "🔴 高风险"
+    if negative_rate >= 15:
+        return "🟡 中风险"
+    return "🟢 低风险"
+
+
+def build_operation_suggestions(topic_counter):
+    suggestions = []
+
+    if topic_counter.get("职业/门派", 0) >= 10:
+        suggestions.append("职业/门派讨论较高，建议关注正邪派平衡、转派需求与职业体验反馈。")
+
+    if topic_counter.get("付费问题", 0) >= 5:
+        suggestions.append("付费相关反馈较多，建议检查礼包性价比、储值体验与付费压力。")
+
+    if topic_counter.get("BUG/技术问题", 0) >= 3:
+        suggestions.append("BUG/技术问题已有集中反馈，建议优先排查登录、卡顿、闪退等影响体验的问题。")
+
+    if topic_counter.get("外挂/工作室", 0) >= 1:
+        suggestions.append("出现外挂/工作室相关反馈，建议持续监控是否影响公平性与玩家留存。")
+
+    if not suggestions:
+        suggestions.append("本周风险整体较低，建议继续观察玩家对活动、职业与付费体验的变化。")
+
+    return suggestions
+
+
 def update_weekly_report(report_sheet, all_records):
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -258,23 +296,31 @@ def update_weekly_report(report_sheet, all_records):
             if kw in title:
                 keyword_counter[kw] += 1
 
-        if sentiment == "负面" or topic in ["BUG/技术问题", "付费问题", "外挂/工作室"]:
+        if sentiment == "负面" or topic in RISK_TOPICS:
             negative_items.append((title, topic, source, url))
 
         if title:
             titles.append((title, topic, sentiment, source, url))
 
     total = len(all_records)
-    negative_count = sentiment_counter.get("负面", 0)
-    negative_rate = f"{round(negative_count / total * 100, 1)}%" if total else "0%"
+
+    risk_negative_count = sentiment_counter.get("负面", 0)
+    for topic in RISK_TOPICS:
+        risk_negative_count += topic_counter.get(topic, 0)
+
+    negative_rate_num = round(risk_negative_count / total * 100, 1) if total else 0
+    negative_rate = f"{negative_rate_num}%"
+    risk_level = build_risk_level(negative_rate_num)
+    suggestions = build_operation_suggestions(topic_counter)
 
     report_rows = []
 
-    report_rows.append(["《新熱血江湖：世界》舆情分析看板"])
+    report_rows.append(["《新熱血江湖：世界》运营级舆情看板 V5.0"])
     report_rows.append(["更新时间", now])
+    report_rows.append(["风险等级", risk_level])
     report_rows.append(["总数据量", total])
-    report_rows.append(["负面数量", negative_count])
-    report_rows.append(["负面占比", negative_rate])
+    report_rows.append(["风险/负面数量", risk_negative_count])
+    report_rows.append(["风险/负面占比", negative_rate])
     report_rows.append([])
 
     report_rows.append(["一、来源分布"])
@@ -301,13 +347,18 @@ def update_weekly_report(report_sheet, all_records):
         report_rows.append([kw, count])
 
     report_rows.append([])
-    report_rows.append(["五、负面反馈TOP20"])
+    report_rows.append(["五、重点风险反馈TOP20"])
     report_rows.append(["标题/评论", "分类", "来源", "链接"])
     for title, topic, source, url in negative_items[-20:][::-1]:
         report_rows.append([title, topic, source, url])
 
     report_rows.append([])
-    report_rows.append(["六、最新内容TOP20"])
+    report_rows.append(["六、运营建议"])
+    for i, suggestion in enumerate(suggestions, start=1):
+        report_rows.append([f"{i}. {suggestion}"])
+
+    report_rows.append([])
+    report_rows.append(["七、最新内容TOP20"])
     report_rows.append(["标题/评论", "分类", "情绪", "来源", "链接"])
     for title, topic, sentiment, source, url in titles[-20:][::-1]:
         report_rows.append([title, topic, sentiment, source, url])
@@ -315,7 +366,8 @@ def update_weekly_report(report_sheet, all_records):
     report_sheet.clear()
     report_sheet.update(report_rows)
 
-    print("weekly_report 舆情看板已更新")
+    print("weekly_report 运营级舆情看板已更新")
+
 
 def build_feishu_summary(all_records):
     source_counter = Counter()
@@ -341,54 +393,122 @@ def build_feishu_summary(all_records):
                 keyword_counter[kw] += 1
 
     total = len(all_records)
-    negative = sentiment_counter.get("负面", 0)
-    negative_rate = f"{round(negative / total * 100, 1)}%" if total else "0%"
+
+    risk_negative_count = sentiment_counter.get("负面", 0)
+    for topic in RISK_TOPICS:
+        risk_negative_count += topic_counter.get(topic, 0)
+
+    negative_rate_num = round(risk_negative_count / total * 100, 1) if total else 0
+    negative_rate = f"{negative_rate_num}%"
+    risk_level = build_risk_level(negative_rate_num)
 
     source_text = "\n".join([f"- {k}：{v}" for k, v in source_counter.most_common()])
     topic_text = "\n".join([f"- {k}：{v}" for k, v in topic_counter.most_common(5)])
     keyword_text = "\n".join([f"- {k}：{v}" for k, v in keyword_counter.most_common(10)])
+    suggestions = build_operation_suggestions(topic_counter)
+    suggestion_text = "\n".join([f"{i+1}. {s}" for i, s in enumerate(suggestions)])
 
-    return f"""【新熱血江湖：世界 舆情监控周报】
+    return {
+        "total": total,
+        "risk_negative_count": risk_negative_count,
+        "negative_rate": negative_rate,
+        "risk_level": risk_level,
+        "source_text": source_text,
+        "topic_text": topic_text,
+        "keyword_text": keyword_text,
+        "suggestion_text": suggestion_text
+    }
 
-更新时间：{datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
 
-总数据量：{total}
-负面数量：{negative}
-负面占比：{negative_rate}
-
-一、来源分布
-{source_text}
-
-二、主要问题分类TOP5
-{topic_text}
-
-三、热门关键词TOP10
-{keyword_text}
-
-完整看板：
-{SHEET_URL}
-"""
-
-def send_feishu_message(text):
+def send_feishu_message(summary):
     webhook = os.environ.get("FEISHU_WEBHOOK")
 
     if not webhook:
         print("未配置 FEISHU_WEBHOOK，跳过飞书推送")
         return
 
-    payload = {
-        "msg_type": "text",
-        "content": {
-            "text": text
+    card = {
+        "msg_type": "interactive",
+        "card": {
+            "config": {
+                "wide_screen_mode": True
+            },
+            "header": {
+                "title": {
+                    "tag": "plain_text",
+                    "content": "《新熱血江湖：世界》舆情监控周报"
+                },
+                "template": "blue"
+            },
+            "elements": [
+                {
+                    "tag": "div",
+                    "text": {
+                        "tag": "lark_md",
+                        "content": (
+                            f"**风险等级：** {summary['risk_level']}\n"
+                            f"**总数据量：** {summary['total']}\n"
+                            f"**风险/负面数量：** {summary['risk_negative_count']}\n"
+                            f"**风险/负面占比：** {summary['negative_rate']}"
+                        )
+                    }
+                },
+                {
+                    "tag": "hr"
+                },
+                {
+                    "tag": "div",
+                    "text": {
+                        "tag": "lark_md",
+                        "content": f"**一、来源分布**\n{summary['source_text']}"
+                    }
+                },
+                {
+                    "tag": "div",
+                    "text": {
+                        "tag": "lark_md",
+                        "content": f"**二、主要问题TOP5**\n{summary['topic_text']}"
+                    }
+                },
+                {
+                    "tag": "div",
+                    "text": {
+                        "tag": "lark_md",
+                        "content": f"**三、热门关键词TOP10**\n{summary['keyword_text']}"
+                    }
+                },
+                {
+                    "tag": "div",
+                    "text": {
+                        "tag": "lark_md",
+                        "content": f"**四、运营建议**\n{summary['suggestion_text']}"
+                    }
+                },
+                {
+                    "tag": "action",
+                    "actions": [
+                        {
+                            "tag": "button",
+                            "text": {
+                                "tag": "plain_text",
+                                "content": "查看完整舆情看板"
+                            },
+                            "url": SHEET_URL,
+                            "type": "primary"
+                        }
+                    ]
+                }
+            ]
         }
     }
 
     try:
-        response = requests.post(webhook, json=payload, timeout=20)
+        response = requests.post(webhook, json=card, timeout=20)
         print("飞书推送状态:", response.status_code)
         print(response.text)
     except Exception as e:
         print("飞书推送失败:", str(e))
+
 
 if __name__ == "__main__":
     bahamut_items = fetch_bahamut_topics()
@@ -411,5 +531,5 @@ if __name__ == "__main__":
     all_records = raw_sheet.get_all_records()
     update_weekly_report(report_sheet, all_records)
 
-    feishu_text = build_feishu_summary(all_records)
-    send_feishu_message(feishu_text)
+    feishu_summary = build_feishu_summary(all_records)
+    send_feishu_message(feishu_summary)
