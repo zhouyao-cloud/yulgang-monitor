@@ -1,8 +1,10 @@
 import os
 import json
 import hashlib
+import asyncio
 import requests
 import gspread
+import discord
 from bs4 import BeautifulSoup
 from datetime import datetime
 from collections import Counter
@@ -29,6 +31,15 @@ REPORT_SHEET_NAME = "weekly_report"
 HISTORY_SHEET_NAME = "weekly_history"
 SHEET_URL = "https://docs.google.com/spreadsheets/d/14Y_HbfXTNYvkbufc5tgys2YGl4msBWASbggllNCfLyQ/edit"
 
+DISCORD_CHANNELS = {
+    "錫葛尼斯議事廳": 1426406162190041114,
+    "BUG反應": 1426406163020382225,
+    "建議": 1426406163020382226,
+    "疑問": 1426406163020382227,
+}
+
+DISCORD_FETCH_LIMIT = 100
+
 headers = {"User-Agent": "Mozilla/5.0"}
 
 HIGH_RISK_WORDS = [
@@ -53,7 +64,7 @@ KEYWORDS = [
     "掛機", "離線", "練功", "經驗", "伺服器", "職業", "技能", "PVP", "PK",
     "商城", "課金", "儲值", "月卡", "禮包", "成長基金", "活動", "補償", "獎勵",
     "公會", "攻城", "跨服", "副本", "外掛", "工作室", "閃退", "登入", "黑屏",
-    "BUG", "退坑", "廣告", "封號", "回檔"
+    "BUG", "退坑", "廣告", "封號", "回檔", "疑問", "建議"
 ]
 
 RISK_TOPICS = ["BUG/技术问题", "外挂/工作室"]
@@ -87,8 +98,11 @@ def classify_topic(text):
     if any(w in text for w in ["攻略", "心得", "教學", "新手"]):
         return "攻略心得"
 
-    if any(w in text for w in ["問題", "請問", "求解"]):
+    if any(w in text for w in ["問題", "請問", "求解", "疑問"]):
         return "玩家问题"
+
+    if any(w in text for w in ["建議", "希望", "可以新增", "能不能"]):
+        return "玩家建议"
 
     return "其他"
 
@@ -109,38 +123,44 @@ def is_high_risk_text(text):
 
 
 def fetch_bahamut_topics():
-    r = requests.get(BOARD_URL, headers=headers)
-    print("Bahamut Status:", r.status_code)
+    rows = []
 
-    soup = BeautifulSoup(r.text, "html.parser")
-    topics = []
-    seen = set()
+    try:
+        r = requests.get(BOARD_URL, headers=headers, timeout=20)
+        print("Bahamut Status:", r.status_code)
 
-    for link in soup.find_all("a"):
-        text = link.get_text(strip=True)
-        href = link.get("href", "")
+        soup = BeautifulSoup(r.text, "html.parser")
+        seen = set()
 
-        if not text:
-            continue
+        for link in soup.find_all("a"):
+            text = link.get_text(strip=True)
+            href = link.get("href", "")
 
-        if f"C.php?bsn={BOARD_BSN}" in href and len(text) >= 6 and "【" in text:
-            full_url = BASE_URL + "/" + href.lstrip("/")
-
-            if full_url in seen:
+            if not text:
                 continue
 
-            seen.add(full_url)
+            if f"C.php?bsn={BOARD_BSN}" in href and len(text) >= 6 and "【" in text:
+                full_url = BASE_URL + "/" + href.lstrip("/")
 
-            topics.append({
-                "collect_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "source": "Bahamut",
-                "topic": classify_topic(text),
-                "sentiment": classify_sentiment(text),
-                "title": text,
-                "url": full_url
-            })
+                if full_url in seen:
+                    continue
 
-    return topics
+                seen.add(full_url)
+
+                rows.append({
+                    "collect_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "source": "Bahamut",
+                    "topic": classify_topic(text),
+                    "sentiment": classify_sentiment(text),
+                    "title": text,
+                    "url": full_url
+                })
+
+    except Exception as e:
+        print("Bahamut 抓取失败:", str(e))
+
+    print("Bahamut 抓到数量:", len(rows))
+    return rows
 
 
 def fetch_google_play_reviews():
@@ -163,7 +183,7 @@ def fetch_google_play_reviews():
             if not content:
                 continue
 
-            title = f"【Google Play {score}星】{content[:80]}"
+            title = f"【Google Play {score}星】{content[:120]}"
 
             if score <= 2:
                 sentiment = "负面"
@@ -220,7 +240,7 @@ def fetch_app_store_reviews():
                 "source": "App Store",
                 "topic": classify_topic(combined),
                 "sentiment": sentiment,
-                "title": f"【App Store {rating}星】{combined[:80]}",
+                "title": f"【App Store {rating}星】{combined[:120]}",
                 "url": f"{APP_STORE_URL}#review-{review_hash}"
             })
 
@@ -230,6 +250,77 @@ def fetch_app_store_reviews():
         print("App Store 抓取失败:", str(e))
 
     return rows
+
+
+async def fetch_discord_messages_async():
+    token = os.environ.get("DISCORD_TOKEN")
+    rows = []
+
+    if not token:
+        print("未配置 DISCORD_TOKEN，跳过 Discord 抓取")
+        return rows
+
+    intents = discord.Intents.default()
+    intents.message_content = True
+
+    client = discord.Client(intents=intents)
+
+    @client.event
+    async def on_ready():
+        print(f"Discord Bot 已登录: {client.user}")
+
+        try:
+            for channel_name, channel_id in DISCORD_CHANNELS.items():
+                channel = client.get_channel(channel_id)
+
+                if channel is None:
+                    try:
+                        channel = await client.fetch_channel(channel_id)
+                    except Exception as e:
+                        print(f"Discord频道获取失败 {channel_name}: {e}")
+                        continue
+
+                count = 0
+
+                async for msg in channel.history(limit=DISCORD_FETCH_LIMIT):
+                    if msg.author.bot:
+                        continue
+
+                    content = (msg.content or "").strip()
+
+                    if not content:
+                        continue
+
+                    title = f"【Discord-{channel_name}】{content[:180]}"
+
+                    rows.append({
+                        "collect_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "source": f"Discord-{channel_name}",
+                        "topic": classify_topic(content),
+                        "sentiment": classify_sentiment(content),
+                        "title": title,
+                        "url": msg.jump_url
+                    })
+
+                    count += 1
+
+                print(f"Discord {channel_name} 抓到消息数量:", count)
+
+        except Exception as e:
+            print("Discord 抓取失败:", str(e))
+
+        await client.close()
+
+    try:
+        await client.start(token)
+    except Exception as e:
+        print("Discord Bot 启动失败:", str(e))
+
+    return rows
+
+
+def fetch_discord_messages():
+    return asyncio.run(fetch_discord_messages_async())
 
 
 def get_client():
@@ -314,6 +405,9 @@ def build_operation_suggestions(topic_counter, risk_count):
     if topic_counter.get("公会玩法", 0) >= 3:
         suggestions.append("公会玩法已有一定讨论，建议结合攻城战、跨服战、公会活动做版本预热。")
 
+    if topic_counter.get("玩家建议", 0) >= 5:
+        suggestions.append("Discord/社群建议较多，建议运营整理高频需求，作为后续版本优化池。")
+
     if not suggestions:
         suggestions.append("本期风险整体较低，建议继续观察玩家对活动、成长、付费与大型玩法的反馈变化。")
 
@@ -330,7 +424,6 @@ def build_counters(all_records):
         source = row.get("source", "")
         title = row.get("title", "")
         sentiment = row.get("sentiment", "")
-
         topic = classify_topic(title)
 
         if source:
@@ -437,7 +530,10 @@ def build_trend_analysis(current_snapshot, previous_history):
     else:
         insights.append(f"真实高风险问题较上期减少 {abs(risk_diff)} 条，舆情风险有所缓和。")
 
-    for topic in ["挂机成长", "商城付费", "装备养成", "职业战斗", "BUG/技术问题", "外挂/工作室", "活动奖励", "公会玩法"]:
+    for topic in [
+        "挂机成长", "商城付费", "装备养成", "职业战斗",
+        "BUG/技术问题", "外挂/工作室", "活动奖励", "公会玩法", "玩家建议"
+    ]:
         curr_value = curr_topic.get(topic, 0)
         prev_value = int(prev_topic.get(topic, 0) or 0)
         diff = curr_value - prev_value
@@ -464,6 +560,9 @@ def build_ai_like_summary(topic_counter, keyword_counter, sentiment_counter, sou
         f"{source_counter.most_common(1)[0][0] if source_counter else '未知'}，当前真实风险判断为 {risk_level}。"
     )
 
+    if source_counter.get("Discord-錫葛尼斯議事廳", 0) + source_counter.get("Discord-BUG反應", 0) + source_counter.get("Discord-建議", 0) + source_counter.get("Discord-疑問", 0) > 0:
+        summaries.append("Discord 已接入监控，可提前捕捉玩家即时反馈，建议重点关注 BUG反應、建議、疑問 频道中的高频问题。")
+
     if risk_count >= 10:
         summaries.append("真实高风险关键词数量偏高，需重点关注是否存在登录异常、闪退、封号、回档、外挂或储值异常等集中风险。")
 
@@ -480,7 +579,7 @@ def build_ai_like_summary(topic_counter, keyword_counter, sentiment_counter, sou
         summaries.append("职业战斗相关讨论较高，玩家可能围绕PVP强度、技能体验与角色成长差异展开讨论。")
 
     if topic_counter.get("BUG/技术问题", 0) >= 3:
-        summaries.append("BUG/技术问题已有集中反馈，建议优先排查登录、卡顿、闪退、黑屏、回档等基础体验问题。")
+        summaries.append("BUG/技术问题已有集中反馈，建议优先排查登录、卡顿、闪退、黑屏、回档等影响基础体验的问题。")
 
     if topic_counter.get("外挂/工作室", 0) >= 1:
         summaries.append("外挂或工作室相关反馈已出现，建议提前建立舆情监控与官方回应预案，避免公平性问题扩散。")
@@ -530,7 +629,7 @@ def update_weekly_report(report_sheet, all_records, trend_insights, current_snap
 
     report_rows = []
 
-    report_rows.append([f"《{GAME_NAME}》运营级舆情看板 V5.6"])
+    report_rows.append([f"《{GAME_NAME}》运营级舆情看板 V6.0"])
     report_rows.append(["更新时间", now])
     report_rows.append(["风险等级", risk_level])
     report_rows.append(["总数据量", total])
@@ -592,7 +691,7 @@ def update_weekly_report(report_sheet, all_records, trend_insights, current_snap
     report_sheet.clear()
     report_sheet.update(report_rows)
 
-    print(f"weekly_report {GAME_NAME} 运营级舆情看板 V5.6 已更新")
+    print(f"weekly_report {GAME_NAME} 运营级舆情看板 V6.0 已更新")
 
 
 def build_feishu_summary(all_records, trend_insights, current_snapshot):
@@ -646,7 +745,7 @@ def send_feishu_message(summary):
             "header": {
                 "title": {
                     "tag": "plain_text",
-                    "content": f"《{GAME_NAME}》舆情监控周报 V5.6"
+                    "content": f"《{GAME_NAME}》舆情监控周报 V6.0"
                 },
                 "template": "blue"
             },
@@ -730,8 +829,9 @@ if __name__ == "__main__":
     bahamut_items = fetch_bahamut_topics()
     google_play_items = fetch_google_play_reviews()
     app_store_items = fetch_app_store_reviews()
+    discord_items = fetch_discord_messages()
 
-    all_items = bahamut_items + google_play_items + app_store_items
+    all_items = bahamut_items + google_play_items + app_store_items + discord_items
 
     for item in all_items[:10]:
         print(item["source"], item["title"], item["topic"], item["sentiment"])
