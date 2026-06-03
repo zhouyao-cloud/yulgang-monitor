@@ -23,6 +23,7 @@ APP_STORE_URL = "https://apps.apple.com/app/id6756000886"
 SPREADSHEET_ID = "14Y_HbfXTNYvkbufc5tgys2YGl4msBWASbggllNCfLyQ"
 RAW_SHEET_NAME = "raw_data"
 REPORT_SHEET_NAME = "weekly_report"
+HISTORY_SHEET_NAME = "weekly_history"
 SHEET_URL = "https://docs.google.com/spreadsheets/d/14Y_HbfXTNYvkbufc5tgys2YGl4msBWASbggllNCfLyQ/edit"
 
 headers = {"User-Agent": "Mozilla/5.0"}
@@ -207,6 +208,13 @@ def get_client():
     return gspread.authorize(credentials)
 
 
+def get_or_create_sheet(workbook, sheet_name):
+    try:
+        return workbook.worksheet(sheet_name)
+    except Exception:
+        return workbook.add_worksheet(title=sheet_name, rows=1000, cols=20)
+
+
 def write_raw_data(sheet, items):
     existing_urls = set()
     existing_rows = sheet.get_all_records()
@@ -236,6 +244,8 @@ def write_raw_data(sheet, items):
 
     print("本次抓到总数量:", len(items))
     print("去重后新增写入数量:", len(rows))
+
+    return len(rows)
 
 
 def build_risk_level(negative_rate):
@@ -267,13 +277,146 @@ def build_operation_suggestions(topic_counter):
     return suggestions
 
 
+def build_counters(all_records):
+    source_counter = Counter()
+    topic_counter = Counter()
+    sentiment_counter = Counter()
+    keyword_counter = Counter()
+
+    for row in all_records:
+        source = row.get("source", "")
+        topic = row.get("topic", "")
+        sentiment = row.get("sentiment", "")
+        title = row.get("title", "")
+
+        if source:
+            source_counter[source] += 1
+        if topic:
+            topic_counter[topic] += 1
+        if sentiment:
+            sentiment_counter[sentiment] += 1
+
+        for kw in KEYWORDS:
+            if kw in title:
+                keyword_counter[kw] += 1
+
+    return source_counter, topic_counter, sentiment_counter, keyword_counter
+
+
+def get_risk_negative_count(topic_counter, sentiment_counter):
+    count = sentiment_counter.get("负面", 0)
+    for topic in RISK_TOPICS:
+        count += topic_counter.get(topic, 0)
+    return count
+
+
+def safe_json_loads(text):
+    try:
+        return json.loads(text) if text else {}
+    except Exception:
+        return {}
+
+
+def get_previous_history(history_sheet):
+    rows = history_sheet.get_all_records()
+
+    if not rows:
+        return None
+
+    return rows[-1]
+
+
+def append_history(history_sheet, snapshot):
+    existing = history_sheet.get_all_values()
+
+    if not existing:
+        history_sheet.append_row([
+            "run_time",
+            "total",
+            "new_count",
+            "risk_negative_count",
+            "negative_rate",
+            "risk_level",
+            "source_counter",
+            "topic_counter",
+            "sentiment_counter",
+            "keyword_counter"
+        ])
+
+    history_sheet.append_row([
+        snapshot["run_time"],
+        snapshot["total"],
+        snapshot["new_count"],
+        snapshot["risk_negative_count"],
+        snapshot["negative_rate"],
+        snapshot["risk_level"],
+        json.dumps(snapshot["source_counter"], ensure_ascii=False),
+        json.dumps(snapshot["topic_counter"], ensure_ascii=False),
+        json.dumps(snapshot["sentiment_counter"], ensure_ascii=False),
+        json.dumps(snapshot["keyword_counter"], ensure_ascii=False)
+    ], value_input_option="USER_ENTERED")
+
+
+def build_trend_analysis(current_snapshot, previous_history):
+    if not previous_history:
+        return ["首次记录历史快照，暂无上期数据可对比。"]
+
+    insights = []
+
+    prev_total = int(previous_history.get("total", 0) or 0)
+    curr_total = current_snapshot["total"]
+
+    prev_risk = int(previous_history.get("risk_negative_count", 0) or 0)
+    curr_risk = current_snapshot["risk_negative_count"]
+
+    prev_topic = safe_json_loads(previous_history.get("topic_counter", ""))
+    curr_topic = current_snapshot["topic_counter"]
+
+    total_diff = curr_total - prev_total
+    risk_diff = curr_risk - prev_risk
+
+    if total_diff > 0:
+        insights.append(f"总舆情数据较上期新增 {total_diff} 条，说明监控池仍在持续累积。")
+    elif total_diff == 0:
+        insights.append("总舆情数据较上期暂无新增，说明近周期公开讨论热度相对平稳。")
+    else:
+        insights.append("总舆情数据较上期下降，可能是历史数据被清理或统计口径发生变化。")
+
+    if risk_diff >= 5:
+        insights.append(f"风险/负面问题较上期增加 {risk_diff} 条，需关注是否出现集中负面扩散。")
+    elif risk_diff > 0:
+        insights.append(f"风险/负面问题较上期小幅增加 {risk_diff} 条，建议继续观察。")
+    elif risk_diff == 0:
+        insights.append("风险/负面问题较上期持平，暂未出现明显恶化。")
+    else:
+        insights.append(f"风险/负面问题较上期减少 {abs(risk_diff)} 条，舆情风险有所缓和。")
+
+    for topic in ["职业/门派", "付费问题", "BUG/技术问题", "外挂/工作室", "活动反馈"]:
+        curr_value = curr_topic.get(topic, 0)
+        prev_value = int(prev_topic.get(topic, 0) or 0)
+        diff = curr_value - prev_value
+
+        if diff >= 5:
+            insights.append(f"{topic} 较上期增加 {diff} 条，已成为需要重点关注的变化点。")
+        elif diff > 0:
+            insights.append(f"{topic} 较上期小幅增加 {diff} 条，可继续观察。")
+
+    if len(insights) <= 2:
+        insights.append("主要问题结构相对稳定，暂未出现明显新增风险点。")
+
+    return insights
+
+
 def build_ai_like_summary(topic_counter, keyword_counter, sentiment_counter, source_counter, total, risk_negative_count, risk_level):
     summaries = []
 
     top_topic = topic_counter.most_common(1)[0][0] if topic_counter else "暂无明显集中话题"
     top_keyword = keyword_counter.most_common(1)[0][0] if keyword_counter else "暂无明显关键词"
 
-    summaries.append(f"本期共监控到 {total} 条舆情数据，主要来源为 {source_counter.most_common(1)[0][0] if source_counter else '未知'}，当前整体风险判断为 {risk_level}。")
+    summaries.append(
+        f"本期共监控到 {total} 条舆情数据，主要来源为 "
+        f"{source_counter.most_common(1)[0][0] if source_counter else '未知'}，当前整体风险判断为 {risk_level}。"
+    )
 
     if topic_counter.get("职业/门派", 0) >= 10:
         summaries.append("职业/门派相关讨论持续较高，玩家主要围绕正派、邪派选择与转派需求展开讨论，建议持续关注职业体验与阵营平衡。")
@@ -299,13 +442,10 @@ def build_ai_like_summary(topic_counter, keyword_counter, sentiment_counter, sou
     return summaries
 
 
-def update_weekly_report(report_sheet, all_records):
+def update_weekly_report(report_sheet, all_records, trend_insights, current_snapshot):
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    source_counter = Counter()
-    topic_counter = Counter()
-    sentiment_counter = Counter()
-    keyword_counter = Counter()
+    source_counter, topic_counter, sentiment_counter, keyword_counter = build_counters(all_records)
 
     negative_items = []
     titles = []
@@ -317,17 +457,6 @@ def update_weekly_report(report_sheet, all_records):
         url = row.get("url", "")
         sentiment = row.get("sentiment", "")
 
-        if source:
-            source_counter[source] += 1
-        if topic:
-            topic_counter[topic] += 1
-        if sentiment:
-            sentiment_counter[sentiment] += 1
-
-        for kw in KEYWORDS:
-            if kw in title:
-                keyword_counter[kw] += 1
-
         if sentiment == "负面" or topic in RISK_TOPICS:
             negative_items.append((title, topic, source, url))
 
@@ -335,14 +464,10 @@ def update_weekly_report(report_sheet, all_records):
             titles.append((title, topic, sentiment, source, url))
 
     total = len(all_records)
+    risk_negative_count = current_snapshot["risk_negative_count"]
+    negative_rate = current_snapshot["negative_rate"]
+    risk_level = current_snapshot["risk_level"]
 
-    risk_negative_count = sentiment_counter.get("负面", 0)
-    for topic in RISK_TOPICS:
-        risk_negative_count += topic_counter.get(topic, 0)
-
-    negative_rate_num = round(risk_negative_count / total * 100, 1) if total else 0
-    negative_rate = f"{negative_rate_num}%"
-    risk_level = build_risk_level(negative_rate_num)
     suggestions = build_operation_suggestions(topic_counter)
     ai_summaries = build_ai_like_summary(
         topic_counter,
@@ -356,10 +481,11 @@ def update_weekly_report(report_sheet, all_records):
 
     report_rows = []
 
-    report_rows.append(["《新熱血江湖：世界》运营级舆情看板 V5.1"])
+    report_rows.append(["《新熱血江湖：世界》运营级舆情看板 V5.5"])
     report_rows.append(["更新时间", now])
     report_rows.append(["风险等级", risk_level])
     report_rows.append(["总数据量", total])
+    report_rows.append(["本次新增", current_snapshot["new_count"]])
     report_rows.append(["风险/负面数量", risk_negative_count])
     report_rows.append(["风险/负面占比", negative_rate])
     report_rows.append([])
@@ -369,42 +495,47 @@ def update_weekly_report(report_sheet, all_records):
         report_rows.append([f"{i}. {summary}"])
 
     report_rows.append([])
-    report_rows.append(["二、来源分布"])
+    report_rows.append(["二、趋势变化分析"])
+    for i, insight in enumerate(trend_insights, start=1):
+        report_rows.append([f"{i}. {insight}"])
+
+    report_rows.append([])
+    report_rows.append(["三、来源分布"])
     report_rows.append(["来源", "数量"])
     for source, count in source_counter.most_common():
         report_rows.append([source, count])
 
     report_rows.append([])
-    report_rows.append(["三、情绪分布"])
+    report_rows.append(["四、情绪分布"])
     report_rows.append(["情绪", "数量"])
     for sentiment, count in sentiment_counter.most_common():
         report_rows.append([sentiment, count])
 
     report_rows.append([])
-    report_rows.append(["四、分类分布"])
+    report_rows.append(["五、分类分布"])
     report_rows.append(["分类", "数量"])
     for topic, count in topic_counter.most_common():
         report_rows.append([topic, count])
 
     report_rows.append([])
-    report_rows.append(["五、热门关键词TOP20"])
+    report_rows.append(["六、热门关键词TOP20"])
     report_rows.append(["关键词", "出现次数"])
     for kw, count in keyword_counter.most_common(20):
         report_rows.append([kw, count])
 
     report_rows.append([])
-    report_rows.append(["六、重点风险反馈TOP20"])
+    report_rows.append(["七、重点风险反馈TOP20"])
     report_rows.append(["标题/评论", "分类", "来源", "链接"])
     for title, topic, source, url in negative_items[-20:][::-1]:
         report_rows.append([title, topic, source, url])
 
     report_rows.append([])
-    report_rows.append(["七、运营建议"])
+    report_rows.append(["八、运营建议"])
     for i, suggestion in enumerate(suggestions, start=1):
         report_rows.append([f"{i}. {suggestion}"])
 
     report_rows.append([])
-    report_rows.append(["八、最新内容TOP20"])
+    report_rows.append(["九、最新内容TOP20"])
     report_rows.append(["标题/评论", "分类", "情绪", "来源", "链接"])
     for title, topic, sentiment, source, url in titles[-20:][::-1]:
         report_rows.append([title, topic, sentiment, source, url])
@@ -412,72 +543,43 @@ def update_weekly_report(report_sheet, all_records):
     report_sheet.clear()
     report_sheet.update(report_rows)
 
-    print("weekly_report 运营级舆情看板 V5.1 已更新")
-
-    return ai_summaries
+    print("weekly_report 运营级舆情看板 V5.5 已更新")
 
 
-def build_feishu_summary(all_records):
-    source_counter = Counter()
-    topic_counter = Counter()
-    sentiment_counter = Counter()
-    keyword_counter = Counter()
-
-    for row in all_records:
-        source = row.get("source", "")
-        topic = row.get("topic", "")
-        sentiment = row.get("sentiment", "")
-        title = row.get("title", "")
-
-        if source:
-            source_counter[source] += 1
-        if topic:
-            topic_counter[topic] += 1
-        if sentiment:
-            sentiment_counter[sentiment] += 1
-
-        for kw in KEYWORDS:
-            if kw in title:
-                keyword_counter[kw] += 1
-
-    total = len(all_records)
-
-    risk_negative_count = sentiment_counter.get("负面", 0)
-    for topic in RISK_TOPICS:
-        risk_negative_count += topic_counter.get(topic, 0)
-
-    negative_rate_num = round(risk_negative_count / total * 100, 1) if total else 0
-    negative_rate = f"{negative_rate_num}%"
-    risk_level = build_risk_level(negative_rate_num)
-
-    source_text = "\n".join([f"- {k}：{v}" for k, v in source_counter.most_common()])
-    topic_text = "\n".join([f"- {k}：{v}" for k, v in topic_counter.most_common(5)])
-    keyword_text = "\n".join([f"- {k}：{v}" for k, v in keyword_counter.most_common(10)])
+def build_feishu_summary(all_records, trend_insights, current_snapshot):
+    source_counter, topic_counter, sentiment_counter, keyword_counter = build_counters(all_records)
 
     suggestions = build_operation_suggestions(topic_counter)
-    suggestion_text = "\n".join([f"{i+1}. {s}" for i, s in enumerate(suggestions)])
 
     ai_summaries = build_ai_like_summary(
         topic_counter,
         keyword_counter,
         sentiment_counter,
         source_counter,
-        total,
-        risk_negative_count,
-        risk_level
+        len(all_records),
+        current_snapshot["risk_negative_count"],
+        current_snapshot["risk_level"]
     )
+
+    source_text = "\n".join([f"- {k}：{v}" for k, v in source_counter.most_common()])
+    topic_text = "\n".join([f"- {k}：{v}" for k, v in topic_counter.most_common(5)])
+    keyword_text = "\n".join([f"- {k}：{v}" for k, v in keyword_counter.most_common(10)])
+    suggestion_text = "\n".join([f"{i+1}. {s}" for i, s in enumerate(suggestions)])
     ai_summary_text = "\n".join([f"{i+1}. {s}" for i, s in enumerate(ai_summaries)])
+    trend_text = "\n".join([f"{i+1}. {s}" for i, s in enumerate(trend_insights[:5])])
 
     return {
-        "total": total,
-        "risk_negative_count": risk_negative_count,
-        "negative_rate": negative_rate,
-        "risk_level": risk_level,
+        "total": current_snapshot["total"],
+        "new_count": current_snapshot["new_count"],
+        "risk_negative_count": current_snapshot["risk_negative_count"],
+        "negative_rate": current_snapshot["negative_rate"],
+        "risk_level": current_snapshot["risk_level"],
         "source_text": source_text,
         "topic_text": topic_text,
         "keyword_text": keyword_text,
         "suggestion_text": suggestion_text,
-        "ai_summary_text": ai_summary_text
+        "ai_summary_text": ai_summary_text,
+        "trend_text": trend_text
     }
 
 
@@ -491,13 +593,11 @@ def send_feishu_message(summary):
     card = {
         "msg_type": "interactive",
         "card": {
-            "config": {
-                "wide_screen_mode": True
-            },
+            "config": {"wide_screen_mode": True},
             "header": {
                 "title": {
                     "tag": "plain_text",
-                    "content": "《新熱血江湖：世界》舆情监控周报 V5.1"
+                    "content": "《新熱血江湖：世界》舆情监控周报 V5.5"
                 },
                 "template": "blue"
             },
@@ -509,6 +609,7 @@ def send_feishu_message(summary):
                         "content": (
                             f"**风险等级：** {summary['risk_level']}\n"
                             f"**总数据量：** {summary['total']}\n"
+                            f"**本次新增：** {summary['new_count']}\n"
                             f"**风险/负面数量：** {summary['risk_negative_count']}\n"
                             f"**风险/负面占比：** {summary['negative_rate']}"
                         )
@@ -526,7 +627,7 @@ def send_feishu_message(summary):
                     "tag": "div",
                     "text": {
                         "tag": "lark_md",
-                        "content": f"**二、来源分布**\n{summary['source_text']}"
+                        "content": f"**二、趋势变化分析**\n{summary['trend_text']}"
                     }
                 },
                 {
@@ -591,11 +692,39 @@ if __name__ == "__main__":
 
     raw_sheet = workbook.worksheet(RAW_SHEET_NAME)
     report_sheet = workbook.worksheet(REPORT_SHEET_NAME)
+    history_sheet = get_or_create_sheet(workbook, HISTORY_SHEET_NAME)
 
-    write_raw_data(raw_sheet, all_items)
+    new_count = write_raw_data(raw_sheet, all_items)
 
     all_records = raw_sheet.get_all_records()
-    update_weekly_report(report_sheet, all_records)
 
-    feishu_summary = build_feishu_summary(all_records)
+    source_counter, topic_counter, sentiment_counter, keyword_counter = build_counters(all_records)
+
+    risk_negative_count = get_risk_negative_count(topic_counter, sentiment_counter)
+    total = len(all_records)
+    negative_rate_num = round(risk_negative_count / total * 100, 1) if total else 0
+    negative_rate = f"{negative_rate_num}%"
+    risk_level = build_risk_level(negative_rate_num)
+
+    current_snapshot = {
+        "run_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "total": total,
+        "new_count": new_count,
+        "risk_negative_count": risk_negative_count,
+        "negative_rate": negative_rate,
+        "risk_level": risk_level,
+        "source_counter": dict(source_counter),
+        "topic_counter": dict(topic_counter),
+        "sentiment_counter": dict(sentiment_counter),
+        "keyword_counter": dict(keyword_counter)
+    }
+
+    previous_history = get_previous_history(history_sheet)
+    trend_insights = build_trend_analysis(current_snapshot, previous_history)
+
+    update_weekly_report(report_sheet, all_records, trend_insights, current_snapshot)
+
+    append_history(history_sheet, current_snapshot)
+
+    feishu_summary = build_feishu_summary(all_records, trend_insights, current_snapshot)
     send_feishu_message(feishu_summary)
