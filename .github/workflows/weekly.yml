@@ -2,8 +2,10 @@ name: Weekly Monitor
 
 on:
   workflow_dispatch:
+
   schedule:
-    - cron: "0 2 * * 1"
+    # 台湾时间每天上午10点
+    - cron: '0 2 * * *'
 
 jobs:
   monitor:
@@ -19,10 +21,18 @@ jobs:
           python-version: "3.11"
 
       - name: Install Dependencies
-        run: pip install requests beautifulsoup4 gspread google-auth google-play-scraper app-store-scraper
+        run: |
+          pip install requests
+          pip install beautifulsoup4
+          pip install gspread
+          pip install google-auth
+          pip install google-play-scraper
+          pip install app-store-scraper
+          pip install discord.py
 
       - name: Fetch Monitor Data
         env:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
+          DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
         run: python scripts/fetch_bahamut.py
