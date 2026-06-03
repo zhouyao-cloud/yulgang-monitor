@@ -10,15 +10,18 @@ from google.oauth2.service_account import Credentials
 from google_play_scraper import reviews, Sort
 from app_store_scraper import AppStore
 
+GAME_NAME = "錫葛尼斯：紅月再臨"
+
 BASE_URL = "https://forum.gamer.com.tw"
-BOARD_URL = "https://forum.gamer.com.tw/B.php?bsn=84232"
+BOARD_BSN = "84023"
+BOARD_URL = f"https://forum.gamer.com.tw/B.php?bsn={BOARD_BSN}"
 
-GOOGLE_PLAY_APP_ID = "com.mover.twrxjhw"
-GOOGLE_PLAY_URL = "https://play.google.com/store/apps/details?id=com.mover.twrxjhw"
+GOOGLE_PLAY_APP_ID = "com.hongyue.android"
+GOOGLE_PLAY_URL = "https://play.google.com/store/apps/details?id=com.hongyue.android"
 
-APP_STORE_APP_ID = 6756000886
-APP_STORE_APP_NAME = "yulgang-world"
-APP_STORE_URL = "https://apps.apple.com/app/id6756000886"
+APP_STORE_APP_ID = 6756251184
+APP_STORE_APP_NAME = "redmoon"
+APP_STORE_URL = "https://apps.apple.com/app/id6756251184"
 
 SPREADSHEET_ID = "14Y_HbfXTNYvkbufc5tgys2YGl4msBWASbggllNCfLyQ"
 RAW_SHEET_NAME = "raw_data"
@@ -31,37 +34,47 @@ headers = {"User-Agent": "Mozilla/5.0"}
 NEGATIVE_WORDS = [
     "爛", "差", "卡", "閃退", "登入", "異常", "BUG", "外掛", "工作室",
     "課金", "儲值", "騙", "退坑", "不玩", "無聊", "垃圾", "失望",
-    "不能", "沒辦法", "黑屏", "掉線", "延遲", "坑", "貴", "廣告"
+    "不能", "沒辦法", "黑屏", "掉線", "延遲", "坑", "貴", "廣告",
+    "封號", "回檔", "當機", "斷線", "儲值未到", "沒收到", "太坑"
 ]
 
 POSITIVE_WORDS = [
     "好玩", "不錯", "讚", "佛", "喜歡", "順", "推薦", "懷念", "經典",
-    "爽", "好看", "有趣"
+    "爽", "好看", "有趣", "刷寶", "懷舊", "打寶", "熱血"
 ]
 
 KEYWORDS = [
     "外掛", "工作室", "閃退", "登入", "卡", "BUG", "課金", "儲值",
-    "禮包", "商城", "活動", "補償", "獎勵", "職業", "正派", "邪派",
-    "掛機", "離線", "經驗", "伺服器", "黑屏", "退坑", "爆率", "廣告"
+    "禮包", "商城", "活動", "補償", "獎勵", "職業", "掛機", "離線",
+    "經驗", "伺服器", "黑屏", "退坑", "爆率", "廣告", "紅月",
+    "錫葛尼斯", "轉生", "裝備", "強化", "掉寶", "打寶", "BOSS",
+    "公會", "攻城", "跨服", "副本", "PVP", "PK", "戰力", "月卡",
+    "成長基金", "封號", "回檔", "飛行器", "寵物", "坐騎"
 ]
 
 RISK_TOPICS = ["BUG/技术问题", "付费问题", "外挂/工作室"]
 
 
 def classify_topic(text):
-    if any(w in text for w in ["BUG", "異常", "閃退", "卡", "黑屏", "登入", "掉線", "延遲"]):
+    if any(w in text for w in ["BUG", "異常", "閃退", "卡", "黑屏", "登入", "掉線", "延遲", "斷線", "當機", "回檔"]):
         return "BUG/技术问题"
-    if any(w in text for w in ["課金", "儲值", "商城", "禮包", "錢", "貴", "廣告"]):
+    if any(w in text for w in ["課金", "儲值", "商城", "禮包", "錢", "貴", "廣告", "月卡", "成長基金", "儲值未到", "沒收到"]):
         return "付费问题"
-    if any(w in text for w in ["職業", "正派", "邪派"]):
-        return "职业/门派"
-    if any(w in text for w in ["活動", "獎勵", "補償"]):
+    if any(w in text for w in ["職業", "騎士", "法師", "刺客", "吸血鬼", "角色", "技能", "PVP", "PK"]):
+        return "职业/战斗"
+    if any(w in text for w in ["掛機", "離線", "練功", "經驗", "刷怪", "打怪"]):
+        return "挂机/成长"
+    if any(w in text for w in ["裝備", "強化", "掉寶", "打寶", "爆率", "寶石", "戰力"]):
+        return "装备养成"
+    if any(w in text for w in ["活動", "獎勵", "補償", "簽到", "序號", "禮包碼"]):
         return "活动反馈"
-    if any(w in text for w in ["外掛", "工作室"]):
+    if any(w in text for w in ["外掛", "工作室", "腳本", "多開"]):
         return "外挂/工作室"
-    if any(w in text for w in ["攻略", "心得"]):
+    if any(w in text for w in ["公會", "攻城", "跨服", "氏族", "團戰"]):
+        return "公会/大型玩法"
+    if any(w in text for w in ["攻略", "心得", "教學", "新手"]):
         return "攻略心得"
-    if any(w in text for w in ["問題", "請問"]):
+    if any(w in text for w in ["問題", "請問", "求解"]):
         return "玩家问题"
     return "其他"
 
@@ -92,7 +105,7 @@ def fetch_bahamut_topics():
         if not text:
             continue
 
-        if "C.php?bsn=84232" in href and len(text) >= 6 and "【" in text:
+        if f"C.php?bsn={BOARD_BSN}" in href and len(text) >= 6 and "【" in text:
             full_url = BASE_URL + "/" + href.lstrip("/")
 
             if full_url in seen:
@@ -259,20 +272,29 @@ def build_risk_level(negative_rate):
 def build_operation_suggestions(topic_counter):
     suggestions = []
 
-    if topic_counter.get("职业/门派", 0) >= 10:
-        suggestions.append("职业/门派讨论较高，建议关注正邪派平衡、转派需求与职业体验反馈。")
+    if topic_counter.get("职业/战斗", 0) >= 10:
+        suggestions.append("职业/战斗讨论较高，建议关注PVP强弱、技能体验与角色成长差异。")
+
+    if topic_counter.get("挂机/成长", 0) >= 8:
+        suggestions.append("挂机/成长相关反馈较多，建议关注离线收益、练功效率与日常负担。")
+
+    if topic_counter.get("装备养成", 0) >= 8:
+        suggestions.append("装备养成讨论较多，建议关注强化成本、掉宝体验与战力追赶压力。")
 
     if topic_counter.get("付费问题", 0) >= 5:
-        suggestions.append("付费相关反馈较多，建议检查礼包性价比、储值体验与付费压力。")
+        suggestions.append("付费相关反馈较多，建议检查商城礼包、月卡、成长基金与储值流程体验。")
 
     if topic_counter.get("BUG/技术问题", 0) >= 3:
-        suggestions.append("BUG/技术问题已有集中反馈，建议优先排查登录、卡顿、闪退等影响体验的问题。")
+        suggestions.append("BUG/技术问题已有集中反馈，建议优先排查登录、卡顿、闪退、黑屏、回档等基础体验问题。")
 
     if topic_counter.get("外挂/工作室", 0) >= 1:
-        suggestions.append("出现外挂/工作室相关反馈，建议持续监控是否影响公平性与玩家留存。")
+        suggestions.append("出现外挂/工作室相关反馈，建议持续监控是否影响打宝、公平性与玩家留存。")
+
+    if topic_counter.get("公会/大型玩法", 0) >= 3:
+        suggestions.append("公会/大型玩法已有一定讨论，建议结合攻城战、跨服战、公会活动做版本预热。")
 
     if not suggestions:
-        suggestions.append("本周风险整体较低，建议继续观察玩家对活动、职业与付费体验的变化。")
+        suggestions.append("本期风险整体较低，建议继续观察玩家对活动、成长、付费与大型玩法的反馈变化。")
 
     return suggestions
 
@@ -391,7 +413,7 @@ def build_trend_analysis(current_snapshot, previous_history):
     else:
         insights.append(f"风险/负面问题较上期减少 {abs(risk_diff)} 条，舆情风险有所缓和。")
 
-    for topic in ["职业/门派", "付费问题", "BUG/技术问题", "外挂/工作室", "活动反馈"]:
+    for topic in ["职业/战斗", "挂机/成长", "装备养成", "付费问题", "BUG/技术问题", "外挂/工作室", "活动反馈", "公会/大型玩法"]:
         curr_value = curr_topic.get(topic, 0)
         prev_value = int(prev_topic.get(topic, 0) or 0)
         diff = curr_value - prev_value
@@ -418,23 +440,26 @@ def build_ai_like_summary(topic_counter, keyword_counter, sentiment_counter, sou
         f"{source_counter.most_common(1)[0][0] if source_counter else '未知'}，当前整体风险判断为 {risk_level}。"
     )
 
-    if topic_counter.get("职业/门派", 0) >= 10:
-        summaries.append("职业/门派相关讨论持续较高，玩家主要围绕正派、邪派选择与转派需求展开讨论，建议持续关注职业体验与阵营平衡。")
+    if topic_counter.get("职业/战斗", 0) >= 10:
+        summaries.append("职业/战斗相关讨论较高，玩家主要围绕PVP强度、职业技能、PK体验与角色成长差异展开讨论。")
+
+    if topic_counter.get("挂机/成长", 0) >= 8:
+        summaries.append("挂机与成长效率相关话题有一定热度，说明玩家对练功速度、离线收益和日常负担较敏感。")
+
+    if topic_counter.get("装备养成", 0) >= 8:
+        summaries.append("装备养成相关讨论较多，可能集中在强化成本、掉宝体验、战力提升和资源获取压力。")
 
     if topic_counter.get("付费问题", 0) >= 5:
-        summaries.append("付费相关反馈已经形成一定规模，主要涉及储值、礼包、广告或付费压力，需要关注是否影响付费转化与玩家口碑。")
+        summaries.append("付费相关反馈已经形成一定规模，主要涉及储值、礼包、月卡、成长基金或付费压力，需要关注是否影响付费转化与口碑。")
 
     if topic_counter.get("BUG/技术问题", 0) >= 3:
-        summaries.append("BUG/技术问题已有集中反馈，建议优先排查登录、卡顿、闪退、黑屏等影响基础体验的问题。")
+        summaries.append("BUG/技术问题已有集中反馈，建议优先排查登录、卡顿、闪退、黑屏、回档等影响基础体验的问题。")
 
-    if keyword_counter.get("掛機", 0) >= 2 or keyword_counter.get("離線", 0) >= 2:
-        summaries.append("挂机与离线收益相关话题有一定热度，说明玩家对成长效率和日常负担较敏感，可作为后续活动和系统优化观察点。")
+    if topic_counter.get("外挂/工作室", 0) >= 1:
+        summaries.append("外挂或工作室相关反馈已出现，建议提前建立舆情监控与官方回应预案，避免公平性问题扩散。")
 
-    if keyword_counter.get("儲值", 0) >= 3 or keyword_counter.get("課金", 0) >= 3:
-        summaries.append("储值/课金关键词出现频次较高，建议关注充值流程、礼包性价比与付费分层设计。")
-
-    if keyword_counter.get("外掛", 0) >= 1 or keyword_counter.get("工作室", 0) >= 1:
-        summaries.append("外挂或工作室相关关键词已出现，建议提前建立舆情监控与官方回应预案，避免公平性问题扩散。")
+    if keyword_counter.get("公會", 0) >= 2 or keyword_counter.get("攻城", 0) >= 2:
+        summaries.append("公会、攻城或跨服玩法出现讨论，说明玩家对中后期社交和大型PVP内容存在期待。")
 
     if len(summaries) == 1:
         summaries.append(f"当前讨论主要集中在「{top_topic}」与关键词「{top_keyword}」，整体舆情暂未出现明显爆发风险。")
@@ -481,7 +506,7 @@ def update_weekly_report(report_sheet, all_records, trend_insights, current_snap
 
     report_rows = []
 
-    report_rows.append(["《新熱血江湖：世界》运营级舆情看板 V5.5"])
+    report_rows.append([f"《{GAME_NAME}》运营级舆情看板 V5.5"])
     report_rows.append(["更新时间", now])
     report_rows.append(["风险等级", risk_level])
     report_rows.append(["总数据量", total])
@@ -543,7 +568,7 @@ def update_weekly_report(report_sheet, all_records, trend_insights, current_snap
     report_sheet.clear()
     report_sheet.update(report_rows)
 
-    print("weekly_report 运营级舆情看板 V5.5 已更新")
+    print(f"weekly_report {GAME_NAME} 运营级舆情看板 V5.5 已更新")
 
 
 def build_feishu_summary(all_records, trend_insights, current_snapshot):
@@ -597,7 +622,7 @@ def send_feishu_message(summary):
             "header": {
                 "title": {
                     "tag": "plain_text",
-                    "content": "《新熱血江湖：世界》舆情监控周报 V5.5"
+                    "content": f"《{GAME_NAME}》舆情监控周报 V5.5"
                 },
                 "template": "blue"
             },
