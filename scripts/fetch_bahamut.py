@@ -31,11 +31,16 @@ SHEET_URL = "https://docs.google.com/spreadsheets/d/14Y_HbfXTNYvkbufc5tgys2YGl4m
 
 headers = {"User-Agent": "Mozilla/5.0"}
 
+HIGH_RISK_WORDS = [
+    "退坑", "詐騙", "騙", "外掛", "工作室", "封號", "鎖帳",
+    "無法登入", "登入失敗", "黑屏", "閃退", "回檔", "當機",
+    "卡死", "斷線", "儲值未到", "沒收到", "退款", "倒閉"
+]
+
 NEGATIVE_WORDS = [
     "爛", "差", "卡", "閃退", "登入", "異常", "BUG", "外掛", "工作室",
-    "課金", "儲值", "騙", "退坑", "不玩", "無聊", "垃圾", "失望",
-    "不能", "沒辦法", "黑屏", "掉線", "延遲", "坑", "貴", "廣告",
-    "封號", "回檔", "當機", "斷線", "儲值未到", "沒收到", "太坑"
+    "騙", "退坑", "不玩", "無聊", "垃圾", "失望", "不能", "沒辦法",
+    "黑屏", "掉線", "延遲", "坑", "貴", "廣告", "封號", "回檔", "當機"
 ]
 
 POSITIVE_WORDS = [
@@ -44,38 +49,47 @@ POSITIVE_WORDS = [
 ]
 
 KEYWORDS = [
-    "外掛", "工作室", "閃退", "登入", "卡", "BUG", "課金", "儲值",
-    "禮包", "商城", "活動", "補償", "獎勵", "職業", "掛機", "離線",
-    "經驗", "伺服器", "黑屏", "退坑", "爆率", "廣告", "紅月",
-    "錫葛尼斯", "轉生", "裝備", "強化", "掉寶", "打寶", "BOSS",
-    "公會", "攻城", "跨服", "副本", "PVP", "PK", "戰力", "月卡",
-    "成長基金", "封號", "回檔", "飛行器", "寵物", "坐騎"
+    "紅月", "錫葛尼斯", "轉生", "裝備", "強化", "掉寶", "打寶", "BOSS",
+    "掛機", "離線", "練功", "經驗", "伺服器", "職業", "技能", "PVP", "PK",
+    "商城", "課金", "儲值", "月卡", "禮包", "成長基金", "活動", "補償", "獎勵",
+    "公會", "攻城", "跨服", "副本", "外掛", "工作室", "閃退", "登入", "黑屏",
+    "BUG", "退坑", "廣告", "封號", "回檔"
 ]
 
-RISK_TOPICS = ["BUG/技术问题", "付费问题", "外挂/工作室"]
+RISK_TOPICS = ["BUG/技术问题", "外挂/工作室"]
 
 
 def classify_topic(text):
-    if any(w in text for w in ["BUG", "異常", "閃退", "卡", "黑屏", "登入", "掉線", "延遲", "斷線", "當機", "回檔"]):
-        return "BUG/技术问题"
-    if any(w in text for w in ["課金", "儲值", "商城", "禮包", "錢", "貴", "廣告", "月卡", "成長基金", "儲值未到", "沒收到"]):
-        return "付费问题"
-    if any(w in text for w in ["職業", "騎士", "法師", "刺客", "吸血鬼", "角色", "技能", "PVP", "PK"]):
-        return "职业/战斗"
-    if any(w in text for w in ["掛機", "離線", "練功", "經驗", "刷怪", "打怪"]):
-        return "挂机/成长"
-    if any(w in text for w in ["裝備", "強化", "掉寶", "打寶", "爆率", "寶石", "戰力"]):
-        return "装备养成"
-    if any(w in text for w in ["活動", "獎勵", "補償", "簽到", "序號", "禮包碼"]):
-        return "活动反馈"
     if any(w in text for w in ["外掛", "工作室", "腳本", "多開"]):
         return "外挂/工作室"
-    if any(w in text for w in ["公會", "攻城", "跨服", "氏族", "團戰"]):
-        return "公会/大型玩法"
+
+    if any(w in text for w in ["BUG", "異常", "閃退", "黑屏", "無法登入", "登入失敗", "掉線", "延遲", "斷線", "當機", "回檔", "卡死"]):
+        return "BUG/技术问题"
+
+    if any(w in text for w in ["商城", "課金", "儲值", "禮包", "月卡", "成長基金", "首儲", "廣告"]):
+        return "商城付费"
+
+    if any(w in text for w in ["裝備", "強化", "掉寶", "打寶", "爆率", "寶石", "戰力", "武器", "防具"]):
+        return "装备养成"
+
+    if any(w in text for w in ["掛機", "離線", "練功", "經驗", "刷怪", "打怪", "升級", "轉生"]):
+        return "挂机成长"
+
+    if any(w in text for w in ["職業", "騎士", "法師", "刺客", "吸血鬼", "角色", "技能", "PVP", "PK"]):
+        return "职业战斗"
+
+    if any(w in text for w in ["公會", "攻城", "跨服", "氏族", "團戰", "BOSS", "副本"]):
+        return "公会玩法"
+
+    if any(w in text for w in ["活動", "獎勵", "補償", "簽到", "序號", "禮包碼"]):
+        return "活动奖励"
+
     if any(w in text for w in ["攻略", "心得", "教學", "新手"]):
         return "攻略心得"
+
     if any(w in text for w in ["問題", "請問", "求解"]):
         return "玩家问题"
+
     return "其他"
 
 
@@ -88,6 +102,10 @@ def classify_sentiment(text):
     if positive_score > negative_score:
         return "正面"
     return "中立"
+
+
+def is_high_risk_text(text):
+    return any(w in text for w in HIGH_RISK_WORDS)
 
 
 def fetch_bahamut_topics():
@@ -261,28 +279,31 @@ def write_raw_data(sheet, items):
     return len(rows)
 
 
-def build_risk_level(negative_rate):
-    if negative_rate >= 30:
+def build_risk_level(risk_rate):
+    if risk_rate >= 20:
         return "🔴 高风险"
-    if negative_rate >= 15:
+    if risk_rate >= 8:
         return "🟡 中风险"
     return "🟢 低风险"
 
 
-def build_operation_suggestions(topic_counter):
+def build_operation_suggestions(topic_counter, risk_count):
     suggestions = []
 
-    if topic_counter.get("职业/战斗", 0) >= 10:
-        suggestions.append("职业/战斗讨论较高，建议关注PVP强弱、技能体验与角色成长差异。")
+    if risk_count >= 10:
+        suggestions.append("高风险关键词数量偏高，建议优先排查是否存在登录、闪退、封号、回档、外挂等集中问题。")
 
-    if topic_counter.get("挂机/成长", 0) >= 8:
-        suggestions.append("挂机/成长相关反馈较多，建议关注离线收益、练功效率与日常负担。")
+    if topic_counter.get("挂机成长", 0) >= 10:
+        suggestions.append("挂机成长讨论较高，建议关注离线收益、练功效率与玩家日常负担。")
 
-    if topic_counter.get("装备养成", 0) >= 8:
+    if topic_counter.get("商城付费", 0) >= 10:
+        suggestions.append("商城付费讨论较多，建议检查礼包、月卡、成长基金与储值流程体验。")
+
+    if topic_counter.get("装备养成", 0) >= 10:
         suggestions.append("装备养成讨论较多，建议关注强化成本、掉宝体验与战力追赶压力。")
 
-    if topic_counter.get("付费问题", 0) >= 5:
-        suggestions.append("付费相关反馈较多，建议检查商城礼包、月卡、成长基金与储值流程体验。")
+    if topic_counter.get("职业战斗", 0) >= 8:
+        suggestions.append("职业战斗讨论较高，建议关注PVP强弱、职业技能体验与角色成长差异。")
 
     if topic_counter.get("BUG/技术问题", 0) >= 3:
         suggestions.append("BUG/技术问题已有集中反馈，建议优先排查登录、卡顿、闪退、黑屏、回档等基础体验问题。")
@@ -290,8 +311,8 @@ def build_operation_suggestions(topic_counter):
     if topic_counter.get("外挂/工作室", 0) >= 1:
         suggestions.append("出现外挂/工作室相关反馈，建议持续监控是否影响打宝、公平性与玩家留存。")
 
-    if topic_counter.get("公会/大型玩法", 0) >= 3:
-        suggestions.append("公会/大型玩法已有一定讨论，建议结合攻城战、跨服战、公会活动做版本预热。")
+    if topic_counter.get("公会玩法", 0) >= 3:
+        suggestions.append("公会玩法已有一定讨论，建议结合攻城战、跨服战、公会活动做版本预热。")
 
     if not suggestions:
         suggestions.append("本期风险整体较低，建议继续观察玩家对活动、成长、付费与大型玩法的反馈变化。")
@@ -307,9 +328,10 @@ def build_counters(all_records):
 
     for row in all_records:
         source = row.get("source", "")
-        topic = row.get("topic", "")
-        sentiment = row.get("sentiment", "")
         title = row.get("title", "")
+        sentiment = row.get("sentiment", "")
+
+        topic = classify_topic(title)
 
         if source:
             source_counter[source] += 1
@@ -325,10 +347,12 @@ def build_counters(all_records):
     return source_counter, topic_counter, sentiment_counter, keyword_counter
 
 
-def get_risk_negative_count(topic_counter, sentiment_counter):
-    count = sentiment_counter.get("负面", 0)
-    for topic in RISK_TOPICS:
-        count += topic_counter.get(topic, 0)
+def get_risk_count_from_records(all_records):
+    count = 0
+    for row in all_records:
+        title = row.get("title", "")
+        if is_high_risk_text(title):
+            count += 1
     return count
 
 
@@ -356,8 +380,8 @@ def append_history(history_sheet, snapshot):
             "run_time",
             "total",
             "new_count",
-            "risk_negative_count",
-            "negative_rate",
+            "risk_count",
+            "risk_rate",
             "risk_level",
             "source_counter",
             "topic_counter",
@@ -369,8 +393,8 @@ def append_history(history_sheet, snapshot):
         snapshot["run_time"],
         snapshot["total"],
         snapshot["new_count"],
-        snapshot["risk_negative_count"],
-        snapshot["negative_rate"],
+        snapshot["risk_count"],
+        snapshot["risk_rate"],
         snapshot["risk_level"],
         json.dumps(snapshot["source_counter"], ensure_ascii=False),
         json.dumps(snapshot["topic_counter"], ensure_ascii=False),
@@ -388,8 +412,8 @@ def build_trend_analysis(current_snapshot, previous_history):
     prev_total = int(previous_history.get("total", 0) or 0)
     curr_total = current_snapshot["total"]
 
-    prev_risk = int(previous_history.get("risk_negative_count", 0) or 0)
-    curr_risk = current_snapshot["risk_negative_count"]
+    prev_risk = int(previous_history.get("risk_count", previous_history.get("risk_negative_count", 0)) or 0)
+    curr_risk = current_snapshot["risk_count"]
 
     prev_topic = safe_json_loads(previous_history.get("topic_counter", ""))
     curr_topic = current_snapshot["topic_counter"]
@@ -405,15 +429,15 @@ def build_trend_analysis(current_snapshot, previous_history):
         insights.append("总舆情数据较上期下降，可能是历史数据被清理或统计口径发生变化。")
 
     if risk_diff >= 5:
-        insights.append(f"风险/负面问题较上期增加 {risk_diff} 条，需关注是否出现集中负面扩散。")
+        insights.append(f"真实高风险问题较上期增加 {risk_diff} 条，需关注是否出现集中负面扩散。")
     elif risk_diff > 0:
-        insights.append(f"风险/负面问题较上期小幅增加 {risk_diff} 条，建议继续观察。")
+        insights.append(f"真实高风险问题较上期小幅增加 {risk_diff} 条，建议继续观察。")
     elif risk_diff == 0:
-        insights.append("风险/负面问题较上期持平，暂未出现明显恶化。")
+        insights.append("真实高风险问题较上期持平，暂未出现明显恶化。")
     else:
-        insights.append(f"风险/负面问题较上期减少 {abs(risk_diff)} 条，舆情风险有所缓和。")
+        insights.append(f"真实高风险问题较上期减少 {abs(risk_diff)} 条，舆情风险有所缓和。")
 
-    for topic in ["职业/战斗", "挂机/成长", "装备养成", "付费问题", "BUG/技术问题", "外挂/工作室", "活动反馈", "公会/大型玩法"]:
+    for topic in ["挂机成长", "商城付费", "装备养成", "职业战斗", "BUG/技术问题", "外挂/工作室", "活动奖励", "公会玩法"]:
         curr_value = curr_topic.get(topic, 0)
         prev_value = int(prev_topic.get(topic, 0) or 0)
         diff = curr_value - prev_value
@@ -429,7 +453,7 @@ def build_trend_analysis(current_snapshot, previous_history):
     return insights
 
 
-def build_ai_like_summary(topic_counter, keyword_counter, sentiment_counter, source_counter, total, risk_negative_count, risk_level):
+def build_ai_like_summary(topic_counter, keyword_counter, sentiment_counter, source_counter, total, risk_count, risk_level):
     summaries = []
 
     top_topic = topic_counter.most_common(1)[0][0] if topic_counter else "暂无明显集中话题"
@@ -437,29 +461,29 @@ def build_ai_like_summary(topic_counter, keyword_counter, sentiment_counter, sou
 
     summaries.append(
         f"本期共监控到 {total} 条舆情数据，主要来源为 "
-        f"{source_counter.most_common(1)[0][0] if source_counter else '未知'}，当前整体风险判断为 {risk_level}。"
+        f"{source_counter.most_common(1)[0][0] if source_counter else '未知'}，当前真实风险判断为 {risk_level}。"
     )
 
-    if topic_counter.get("职业/战斗", 0) >= 10:
-        summaries.append("职业/战斗相关讨论较高，玩家主要围绕PVP强度、职业技能、PK体验与角色成长差异展开讨论。")
+    if risk_count >= 10:
+        summaries.append("真实高风险关键词数量偏高，需重点关注是否存在登录异常、闪退、封号、回档、外挂或储值异常等集中风险。")
 
-    if topic_counter.get("挂机/成长", 0) >= 8:
-        summaries.append("挂机与成长效率相关话题有一定热度，说明玩家对练功速度、离线收益和日常负担较敏感。")
+    if topic_counter.get("挂机成长", 0) >= 10:
+        summaries.append("挂机与成长效率相关话题较高，说明玩家对练功速度、离线收益和日常负担较敏感。")
 
-    if topic_counter.get("装备养成", 0) >= 8:
+    if topic_counter.get("商城付费", 0) >= 10:
+        summaries.append("商城付费相关讨论较多，但不应全部视为负面风险，建议重点区分正常付费讨论与价格/储值异常反馈。")
+
+    if topic_counter.get("装备养成", 0) >= 10:
         summaries.append("装备养成相关讨论较多，可能集中在强化成本、掉宝体验、战力提升和资源获取压力。")
 
-    if topic_counter.get("付费问题", 0) >= 5:
-        summaries.append("付费相关反馈已经形成一定规模，主要涉及储值、礼包、月卡、成长基金或付费压力，需要关注是否影响付费转化与口碑。")
+    if topic_counter.get("职业战斗", 0) >= 8:
+        summaries.append("职业战斗相关讨论较高，玩家可能围绕PVP强度、技能体验与角色成长差异展开讨论。")
 
     if topic_counter.get("BUG/技术问题", 0) >= 3:
-        summaries.append("BUG/技术问题已有集中反馈，建议优先排查登录、卡顿、闪退、黑屏、回档等影响基础体验的问题。")
+        summaries.append("BUG/技术问题已有集中反馈，建议优先排查登录、卡顿、闪退、黑屏、回档等基础体验问题。")
 
     if topic_counter.get("外挂/工作室", 0) >= 1:
         summaries.append("外挂或工作室相关反馈已出现，建议提前建立舆情监控与官方回应预案，避免公平性问题扩散。")
-
-    if keyword_counter.get("公會", 0) >= 2 or keyword_counter.get("攻城", 0) >= 2:
-        summaries.append("公会、攻城或跨服玩法出现讨论，说明玩家对中后期社交和大型PVP内容存在期待。")
 
     if len(summaries) == 1:
         summaries.append(f"当前讨论主要集中在「{top_topic}」与关键词「{top_keyword}」，整体舆情暂未出现明显爆发风险。")
@@ -472,47 +496,47 @@ def update_weekly_report(report_sheet, all_records, trend_insights, current_snap
 
     source_counter, topic_counter, sentiment_counter, keyword_counter = build_counters(all_records)
 
-    negative_items = []
+    risk_items = []
     titles = []
 
     for row in all_records:
         source = row.get("source", "")
-        topic = row.get("topic", "")
         title = row.get("title", "")
         url = row.get("url", "")
         sentiment = row.get("sentiment", "")
+        topic = classify_topic(title)
 
-        if sentiment == "负面" or topic in RISK_TOPICS:
-            negative_items.append((title, topic, source, url))
+        if is_high_risk_text(title) or topic in RISK_TOPICS:
+            risk_items.append((title, topic, source, url))
 
         if title:
             titles.append((title, topic, sentiment, source, url))
 
     total = len(all_records)
-    risk_negative_count = current_snapshot["risk_negative_count"]
-    negative_rate = current_snapshot["negative_rate"]
+    risk_count = current_snapshot["risk_count"]
+    risk_rate = current_snapshot["risk_rate"]
     risk_level = current_snapshot["risk_level"]
 
-    suggestions = build_operation_suggestions(topic_counter)
+    suggestions = build_operation_suggestions(topic_counter, risk_count)
     ai_summaries = build_ai_like_summary(
         topic_counter,
         keyword_counter,
         sentiment_counter,
         source_counter,
         total,
-        risk_negative_count,
+        risk_count,
         risk_level
     )
 
     report_rows = []
 
-    report_rows.append([f"《{GAME_NAME}》运营级舆情看板 V5.5"])
+    report_rows.append([f"《{GAME_NAME}》运营级舆情看板 V5.6"])
     report_rows.append(["更新时间", now])
     report_rows.append(["风险等级", risk_level])
     report_rows.append(["总数据量", total])
     report_rows.append(["本次新增", current_snapshot["new_count"]])
-    report_rows.append(["风险/负面数量", risk_negative_count])
-    report_rows.append(["风险/负面占比", negative_rate])
+    report_rows.append(["真实风险数量", risk_count])
+    report_rows.append(["真实风险占比", risk_rate])
     report_rows.append([])
 
     report_rows.append(["一、AI运营摘要"])
@@ -551,7 +575,7 @@ def update_weekly_report(report_sheet, all_records, trend_insights, current_snap
     report_rows.append([])
     report_rows.append(["七、重点风险反馈TOP20"])
     report_rows.append(["标题/评论", "分类", "来源", "链接"])
-    for title, topic, source, url in negative_items[-20:][::-1]:
+    for title, topic, source, url in risk_items[-20:][::-1]:
         report_rows.append([title, topic, source, url])
 
     report_rows.append([])
@@ -568,13 +592,13 @@ def update_weekly_report(report_sheet, all_records, trend_insights, current_snap
     report_sheet.clear()
     report_sheet.update(report_rows)
 
-    print(f"weekly_report {GAME_NAME} 运营级舆情看板 V5.5 已更新")
+    print(f"weekly_report {GAME_NAME} 运营级舆情看板 V5.6 已更新")
 
 
 def build_feishu_summary(all_records, trend_insights, current_snapshot):
     source_counter, topic_counter, sentiment_counter, keyword_counter = build_counters(all_records)
 
-    suggestions = build_operation_suggestions(topic_counter)
+    suggestions = build_operation_suggestions(topic_counter, current_snapshot["risk_count"])
 
     ai_summaries = build_ai_like_summary(
         topic_counter,
@@ -582,7 +606,7 @@ def build_feishu_summary(all_records, trend_insights, current_snapshot):
         sentiment_counter,
         source_counter,
         len(all_records),
-        current_snapshot["risk_negative_count"],
+        current_snapshot["risk_count"],
         current_snapshot["risk_level"]
     )
 
@@ -596,8 +620,8 @@ def build_feishu_summary(all_records, trend_insights, current_snapshot):
     return {
         "total": current_snapshot["total"],
         "new_count": current_snapshot["new_count"],
-        "risk_negative_count": current_snapshot["risk_negative_count"],
-        "negative_rate": current_snapshot["negative_rate"],
+        "risk_count": current_snapshot["risk_count"],
+        "risk_rate": current_snapshot["risk_rate"],
         "risk_level": current_snapshot["risk_level"],
         "source_text": source_text,
         "topic_text": topic_text,
@@ -622,7 +646,7 @@ def send_feishu_message(summary):
             "header": {
                 "title": {
                     "tag": "plain_text",
-                    "content": f"《{GAME_NAME}》舆情监控周报 V5.5"
+                    "content": f"《{GAME_NAME}》舆情监控周报 V5.6"
                 },
                 "template": "blue"
             },
@@ -635,8 +659,8 @@ def send_feishu_message(summary):
                             f"**风险等级：** {summary['risk_level']}\n"
                             f"**总数据量：** {summary['total']}\n"
                             f"**本次新增：** {summary['new_count']}\n"
-                            f"**风险/负面数量：** {summary['risk_negative_count']}\n"
-                            f"**风险/负面占比：** {summary['negative_rate']}"
+                            f"**真实风险数量：** {summary['risk_count']}\n"
+                            f"**真实风险占比：** {summary['risk_rate']}"
                         )
                     }
                 },
@@ -725,18 +749,18 @@ if __name__ == "__main__":
 
     source_counter, topic_counter, sentiment_counter, keyword_counter = build_counters(all_records)
 
-    risk_negative_count = get_risk_negative_count(topic_counter, sentiment_counter)
+    risk_count = get_risk_count_from_records(all_records)
     total = len(all_records)
-    negative_rate_num = round(risk_negative_count / total * 100, 1) if total else 0
-    negative_rate = f"{negative_rate_num}%"
-    risk_level = build_risk_level(negative_rate_num)
+    risk_rate_num = round(risk_count / total * 100, 1) if total else 0
+    risk_rate = f"{risk_rate_num}%"
+    risk_level = build_risk_level(risk_rate_num)
 
     current_snapshot = {
         "run_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "total": total,
         "new_count": new_count,
-        "risk_negative_count": risk_negative_count,
-        "negative_rate": negative_rate,
+        "risk_count": risk_count,
+        "risk_rate": risk_rate,
         "risk_level": risk_level,
         "source_counter": dict(source_counter),
         "topic_counter": dict(topic_counter),
