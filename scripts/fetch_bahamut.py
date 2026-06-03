@@ -30,7 +30,7 @@ headers = {"User-Agent": "Mozilla/5.0"}
 NEGATIVE_WORDS = [
     "爛", "差", "卡", "閃退", "登入", "異常", "BUG", "外掛", "工作室",
     "課金", "儲值", "騙", "退坑", "不玩", "無聊", "垃圾", "失望",
-    "不能", "沒辦法", "黑屏", "掉線", "延遲", "坑", "貴"
+    "不能", "沒辦法", "黑屏", "掉線", "延遲", "坑", "貴", "廣告"
 ]
 
 POSITIVE_WORDS = [
@@ -41,7 +41,7 @@ POSITIVE_WORDS = [
 KEYWORDS = [
     "外掛", "工作室", "閃退", "登入", "卡", "BUG", "課金", "儲值",
     "禮包", "商城", "活動", "補償", "獎勵", "職業", "正派", "邪派",
-    "掛機", "離線", "經驗", "伺服器", "黑屏", "退坑", "爆率"
+    "掛機", "離線", "經驗", "伺服器", "黑屏", "退坑", "爆率", "廣告"
 ]
 
 RISK_TOPICS = ["BUG/技术问题", "付费问题", "外挂/工作室"]
@@ -50,7 +50,7 @@ RISK_TOPICS = ["BUG/技术问题", "付费问题", "外挂/工作室"]
 def classify_topic(text):
     if any(w in text for w in ["BUG", "異常", "閃退", "卡", "黑屏", "登入", "掉線", "延遲"]):
         return "BUG/技术问题"
-    if any(w in text for w in ["課金", "儲值", "商城", "禮包", "錢", "貴"]):
+    if any(w in text for w in ["課金", "儲值", "商城", "禮包", "錢", "貴", "廣告"]):
         return "付费问题"
     if any(w in text for w in ["職業", "正派", "邪派"]):
         return "职业/门派"
@@ -267,6 +267,38 @@ def build_operation_suggestions(topic_counter):
     return suggestions
 
 
+def build_ai_like_summary(topic_counter, keyword_counter, sentiment_counter, source_counter, total, risk_negative_count, risk_level):
+    summaries = []
+
+    top_topic = topic_counter.most_common(1)[0][0] if topic_counter else "暂无明显集中话题"
+    top_keyword = keyword_counter.most_common(1)[0][0] if keyword_counter else "暂无明显关键词"
+
+    summaries.append(f"本期共监控到 {total} 条舆情数据，主要来源为 {source_counter.most_common(1)[0][0] if source_counter else '未知'}，当前整体风险判断为 {risk_level}。")
+
+    if topic_counter.get("职业/门派", 0) >= 10:
+        summaries.append("职业/门派相关讨论持续较高，玩家主要围绕正派、邪派选择与转派需求展开讨论，建议持续关注职业体验与阵营平衡。")
+
+    if topic_counter.get("付费问题", 0) >= 5:
+        summaries.append("付费相关反馈已经形成一定规模，主要涉及储值、礼包、广告或付费压力，需要关注是否影响付费转化与玩家口碑。")
+
+    if topic_counter.get("BUG/技术问题", 0) >= 3:
+        summaries.append("BUG/技术问题已有集中反馈，建议优先排查登录、卡顿、闪退、黑屏等影响基础体验的问题。")
+
+    if keyword_counter.get("掛機", 0) >= 2 or keyword_counter.get("離線", 0) >= 2:
+        summaries.append("挂机与离线收益相关话题有一定热度，说明玩家对成长效率和日常负担较敏感，可作为后续活动和系统优化观察点。")
+
+    if keyword_counter.get("儲值", 0) >= 3 or keyword_counter.get("課金", 0) >= 3:
+        summaries.append("储值/课金关键词出现频次较高，建议关注充值流程、礼包性价比与付费分层设计。")
+
+    if keyword_counter.get("外掛", 0) >= 1 or keyword_counter.get("工作室", 0) >= 1:
+        summaries.append("外挂或工作室相关关键词已出现，建议提前建立舆情监控与官方回应预案，避免公平性问题扩散。")
+
+    if len(summaries) == 1:
+        summaries.append(f"当前讨论主要集中在「{top_topic}」与关键词「{top_keyword}」，整体舆情暂未出现明显爆发风险。")
+
+    return summaries
+
+
 def update_weekly_report(report_sheet, all_records):
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -312,10 +344,19 @@ def update_weekly_report(report_sheet, all_records):
     negative_rate = f"{negative_rate_num}%"
     risk_level = build_risk_level(negative_rate_num)
     suggestions = build_operation_suggestions(topic_counter)
+    ai_summaries = build_ai_like_summary(
+        topic_counter,
+        keyword_counter,
+        sentiment_counter,
+        source_counter,
+        total,
+        risk_negative_count,
+        risk_level
+    )
 
     report_rows = []
 
-    report_rows.append(["《新熱血江湖：世界》运营级舆情看板 V5.0"])
+    report_rows.append(["《新熱血江湖：世界》运营级舆情看板 V5.1"])
     report_rows.append(["更新时间", now])
     report_rows.append(["风险等级", risk_level])
     report_rows.append(["总数据量", total])
@@ -323,42 +364,47 @@ def update_weekly_report(report_sheet, all_records):
     report_rows.append(["风险/负面占比", negative_rate])
     report_rows.append([])
 
-    report_rows.append(["一、来源分布"])
+    report_rows.append(["一、AI运营摘要"])
+    for i, summary in enumerate(ai_summaries, start=1):
+        report_rows.append([f"{i}. {summary}"])
+
+    report_rows.append([])
+    report_rows.append(["二、来源分布"])
     report_rows.append(["来源", "数量"])
     for source, count in source_counter.most_common():
         report_rows.append([source, count])
 
     report_rows.append([])
-    report_rows.append(["二、情绪分布"])
+    report_rows.append(["三、情绪分布"])
     report_rows.append(["情绪", "数量"])
     for sentiment, count in sentiment_counter.most_common():
         report_rows.append([sentiment, count])
 
     report_rows.append([])
-    report_rows.append(["三、分类分布"])
+    report_rows.append(["四、分类分布"])
     report_rows.append(["分类", "数量"])
     for topic, count in topic_counter.most_common():
         report_rows.append([topic, count])
 
     report_rows.append([])
-    report_rows.append(["四、热门关键词TOP20"])
+    report_rows.append(["五、热门关键词TOP20"])
     report_rows.append(["关键词", "出现次数"])
     for kw, count in keyword_counter.most_common(20):
         report_rows.append([kw, count])
 
     report_rows.append([])
-    report_rows.append(["五、重点风险反馈TOP20"])
+    report_rows.append(["六、重点风险反馈TOP20"])
     report_rows.append(["标题/评论", "分类", "来源", "链接"])
     for title, topic, source, url in negative_items[-20:][::-1]:
         report_rows.append([title, topic, source, url])
 
     report_rows.append([])
-    report_rows.append(["六、运营建议"])
+    report_rows.append(["七、运营建议"])
     for i, suggestion in enumerate(suggestions, start=1):
         report_rows.append([f"{i}. {suggestion}"])
 
     report_rows.append([])
-    report_rows.append(["七、最新内容TOP20"])
+    report_rows.append(["八、最新内容TOP20"])
     report_rows.append(["标题/评论", "分类", "情绪", "来源", "链接"])
     for title, topic, sentiment, source, url in titles[-20:][::-1]:
         report_rows.append([title, topic, sentiment, source, url])
@@ -366,7 +412,9 @@ def update_weekly_report(report_sheet, all_records):
     report_sheet.clear()
     report_sheet.update(report_rows)
 
-    print("weekly_report 运营级舆情看板已更新")
+    print("weekly_report 运营级舆情看板 V5.1 已更新")
+
+    return ai_summaries
 
 
 def build_feishu_summary(all_records):
@@ -405,8 +453,20 @@ def build_feishu_summary(all_records):
     source_text = "\n".join([f"- {k}：{v}" for k, v in source_counter.most_common()])
     topic_text = "\n".join([f"- {k}：{v}" for k, v in topic_counter.most_common(5)])
     keyword_text = "\n".join([f"- {k}：{v}" for k, v in keyword_counter.most_common(10)])
+
     suggestions = build_operation_suggestions(topic_counter)
     suggestion_text = "\n".join([f"{i+1}. {s}" for i, s in enumerate(suggestions)])
+
+    ai_summaries = build_ai_like_summary(
+        topic_counter,
+        keyword_counter,
+        sentiment_counter,
+        source_counter,
+        total,
+        risk_negative_count,
+        risk_level
+    )
+    ai_summary_text = "\n".join([f"{i+1}. {s}" for i, s in enumerate(ai_summaries)])
 
     return {
         "total": total,
@@ -416,7 +476,8 @@ def build_feishu_summary(all_records):
         "source_text": source_text,
         "topic_text": topic_text,
         "keyword_text": keyword_text,
-        "suggestion_text": suggestion_text
+        "suggestion_text": suggestion_text,
+        "ai_summary_text": ai_summary_text
     }
 
 
@@ -436,7 +497,7 @@ def send_feishu_message(summary):
             "header": {
                 "title": {
                     "tag": "plain_text",
-                    "content": "《新熱血江湖：世界》舆情监控周报"
+                    "content": "《新熱血江湖：世界》舆情监控周报 V5.1"
                 },
                 "template": "blue"
             },
@@ -453,35 +514,40 @@ def send_feishu_message(summary):
                         )
                     }
                 },
-                {
-                    "tag": "hr"
-                },
+                {"tag": "hr"},
                 {
                     "tag": "div",
                     "text": {
                         "tag": "lark_md",
-                        "content": f"**一、来源分布**\n{summary['source_text']}"
+                        "content": f"**一、AI运营摘要**\n{summary['ai_summary_text']}"
                     }
                 },
                 {
                     "tag": "div",
                     "text": {
                         "tag": "lark_md",
-                        "content": f"**二、主要问题TOP5**\n{summary['topic_text']}"
+                        "content": f"**二、来源分布**\n{summary['source_text']}"
                     }
                 },
                 {
                     "tag": "div",
                     "text": {
                         "tag": "lark_md",
-                        "content": f"**三、热门关键词TOP10**\n{summary['keyword_text']}"
+                        "content": f"**三、主要问题TOP5**\n{summary['topic_text']}"
                     }
                 },
                 {
                     "tag": "div",
                     "text": {
                         "tag": "lark_md",
-                        "content": f"**四、运营建议**\n{summary['suggestion_text']}"
+                        "content": f"**四、热门关键词TOP10**\n{summary['keyword_text']}"
+                    }
+                },
+                {
+                    "tag": "div",
+                    "text": {
+                        "tag": "lark_md",
+                        "content": f"**五、运营建议**\n{summary['suggestion_text']}"
                     }
                 },
                 {
