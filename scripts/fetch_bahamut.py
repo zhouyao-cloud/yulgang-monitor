@@ -2,6 +2,7 @@ import os
 import json
 import hashlib
 import asyncio
+import re
 import requests
 import gspread
 import discord
@@ -39,7 +40,6 @@ DISCORD_CHANNELS = {
 }
 
 DISCORD_FETCH_LIMIT = 100
-
 headers = {"User-Agent": "Mozilla/5.0"}
 
 HIGH_RISK_WORDS = [
@@ -71,7 +71,8 @@ KEYWORDS = [
     "公會", "攻城", "跨服", "副本", "外掛", "工作室", "閃退", "登入", "黑屏",
     "退坑", "廣告", "封號", "回檔", "更新", "下載", "帳號", "序號", "禮包碼",
     "新手", "教學", "背包", "倉庫", "交易", "自動", "任務", "主線", "客服",
-    "公告", "聊天", "頻道", "VIP", "至尊", "金幣", "對話框", "兌換", "坐騎"
+    "公告", "聊天", "頻道", "VIP", "至尊", "金幣", "對話框", "兌換", "坐騎",
+    "NPC", "地圖", "對話框", "稱號", "外觀", "聊天框"
 ]
 
 RISK_TOPICS = ["BUG/技术问题", "外挂/工作室"]
@@ -79,8 +80,8 @@ RISK_TOPICS = ["BUG/技术问题", "外挂/工作室"]
 DEMAND_RULES = {
     "FAQ-至尊VIP获取说明": ["至尊VIP", "至尊 vip", "至尊", "VIP哪裡", "vip哪裡", "儲值多少", "具體儲值"],
     "FAQ-金币/货币用途说明": ["金幣袋", "金幣", "貨幣", "兌換", "為何要賣", "有什麼用"],
-    "FAQ-外观/对话框获取说明": ["對話框", "聊天框", "外觀", "造型", "哪裡獲得"],
-    "FAQ-任务/NPC位置说明": ["任務", "主線", "NPC", "哪裡", "找不到", "怎麼走"],
+    "FAQ-外观/对话框获取说明": ["對話框", "聊天框", "外觀", "造型", "哪裡獲得", "稱號"],
+    "FAQ-任务/NPC位置说明": ["任務", "主線", "NPC", "哪裡", "找不到", "怎麼走", "地圖"],
     "FAQ-装备强化说明": ["裝備", "強化", "寶石", "武器", "防具", "戰力"],
     "FAQ-兑换码/礼包说明": ["序號", "禮包碼", "兌換碼", "禮包", "獎勵"],
     "优化储值/商城说明": ["儲值", "商城", "禮包", "月卡", "成長基金", "VIP", "至尊"],
@@ -97,8 +98,8 @@ DEMAND_RULES = {
 ACTION_RULES = {
     "补充至尊VIP获取与储值门槛说明": ["至尊VIP", "至尊", "儲值多少", "具體儲值"],
     "补充金币袋/兑换道具用途说明": ["金幣袋", "金幣", "兌換", "為何要賣"],
-    "补充对话框/外观获取方式FAQ": ["對話框", "聊天框", "外觀", "哪裡獲得"],
-    "整理常见任务/NPC位置说明": ["任務", "主線", "NPC", "找不到", "哪裡"],
+    "补充对话框/外观获取方式FAQ": ["對話框", "聊天框", "外觀", "哪裡獲得", "稱號"],
+    "整理常见任务/NPC位置说明": ["任務", "主線", "NPC", "找不到", "哪裡", "地圖"],
     "检查储值不到账或商城说明争议": ["儲值未到", "沒收到", "儲值", "商城"],
     "整理更新/下载异常处理公告": ["更新失敗", "無法下載", "下載", "安裝"],
     "整理外挂/工作室处理公告": ["外掛", "工作室", "腳本", "多開"],
@@ -137,6 +138,22 @@ def strip_prefix(text):
     return clean.strip()
 
 
+def is_valid_voice_text(text):
+    clean = strip_prefix(text)
+
+    if len(clean) < 6:
+        return False
+
+    if re.fullmatch(r"[0-9\s\W_]+", clean):
+        return False
+
+    invalid_short = ["1", "2", "3", "ok", "OK", "好", "嗯", "是", "對", "收到", "謝謝", "感謝"]
+    if clean in invalid_short:
+        return False
+
+    return True
+
+
 def classify_topic(text):
     clean_text = strip_prefix(text)
 
@@ -161,7 +178,7 @@ def classify_topic(text):
     if any(w in clean_text for w in ["金幣袋", "金幣", "貨幣", "兌換"]):
         return "货币/道具说明"
 
-    if any(w in clean_text for w in ["對話框", "聊天框", "外觀", "造型", "稱號"]):
+    if any(w in clean_text for w in ["對話框", "聊天框", "外觀", "造型", "稱號", "坐騎"]):
         return "外观/展示系统"
 
     if any(w in clean_text for w in ["裝備", "強化", "掉寶", "打寶", "爆率", "寶石", "戰力", "武器", "防具"]):
@@ -182,7 +199,7 @@ def classify_topic(text):
     if any(w in clean_text for w in ["背包", "倉庫", "格子", "交易", "拍賣", "聊天", "頻道", "客服", "公告"]):
         return "功能体验"
 
-    if any(w in clean_text for w in ["攻略", "心得", "教學", "新手", "怎麼玩", "玩法", "主線", "任務", "NPC"]):
+    if any(w in clean_text for w in ["攻略", "心得", "教學", "新手", "怎麼玩", "玩法", "主線", "任務", "NPC", "地圖"]):
         return "攻略心得"
 
     if any(w in clean_text for w in ["建議", "希望", "可以新增", "能不能", "應該", "建議官方", "可不可以"]):
@@ -609,6 +626,8 @@ def build_trend_analysis(current_snapshot, previous_history):
 
     if current_snapshot["new_count"] > 0 and current_snapshot["new_count"] >= curr_total * 0.5:
         insights.append("本次新增占比较高，可能包含首次接入或数据回填，不建议直接解读为舆情突然爆发。")
+    elif current_snapshot["new_count"] <= 3:
+        insights.append(f"本次仅新增 {current_snapshot['new_count']} 条，今日新增舆情较少，整体较平稳。")
     elif total_diff > 0:
         insights.append(f"总舆情数据较上期新增 {total_diff} 条，说明监控池仍在持续累积。")
     elif total_diff == 0:
@@ -688,7 +707,7 @@ def build_player_voice(records, limit=5):
         url = row.get("url", "")
         topic = classify_topic(title)
 
-        if not title:
+        if not is_valid_voice_text(title):
             continue
 
         if topic in priority_topics or is_high_risk_text(title):
@@ -704,8 +723,11 @@ def build_player_voice(records, limit=5):
             url = row.get("url", "")
             topic = classify_topic(title)
 
+            if not is_valid_voice_text(title):
+                continue
+
             item = (title, topic, source, url)
-            if title and item not in selected:
+            if item not in selected:
                 selected.append(item)
 
             if len(selected) >= limit:
@@ -718,9 +740,14 @@ def build_ai_like_summary(topic_counter, keyword_counter, source_counter, discor
     summaries = []
     top_source = source_counter.most_common(1)[0][0] if source_counter else "未知"
 
-    summaries.append(
-        f"本期共监控到 {total} 条舆情数据，本次新增 {new_count} 条，主要来源为 {top_source}，当前真实风险判断为 {risk_level}。"
-    )
+    if new_count <= 3:
+        summaries.append(
+            f"本期累计监控到 {total} 条舆情数据，本次仅新增 {new_count} 条，新增舆情较少，当前真实风险判断为 {risk_level}。"
+        )
+    else:
+        summaries.append(
+            f"本期共监控到 {total} 条舆情数据，本次新增 {new_count} 条，主要来源为 {top_source}，当前真实风险判断为 {risk_level}。"
+        )
 
     if sum(discord_counter.values()) > 0:
         summaries.append(f"Discord 已接入监控，本期累计捕捉 {sum(discord_counter.values())} 条社群反馈，可提前发现玩家即时问题。")
@@ -780,7 +807,7 @@ def update_weekly_report(report_sheet, all_records, new_items, trend_insights, c
 
     report_rows = []
 
-    report_rows.append([f"《{GAME_NAME}》运营级舆情看板 V6.3"])
+    report_rows.append([f"《{GAME_NAME}》运营级舆情看板 V6.4"])
     report_rows.append(["更新时间", now])
     report_rows.append(["风险等级", current_snapshot["risk_level"]])
     report_rows.append(["总数据量", current_snapshot["total"]])
@@ -847,13 +874,13 @@ def update_weekly_report(report_sheet, all_records, new_items, trend_insights, c
     report_rows.append(["十、玩家原声TOP5"])
     report_rows.append(["内容", "分类", "来源", "链接"])
     for title, topic, source, url in player_voices:
-        report_rows.append([title, topic, source, url])
+        report_rows.append([strip_prefix(title), topic, source, url])
 
     report_rows.append([])
     report_rows.append(["十一、重点风险反馈TOP20"])
     report_rows.append(["标题/评论", "分类", "来源", "链接"])
     for title, topic, source, url in risk_items[-20:][::-1]:
-        report_rows.append([title, topic, source, url])
+        report_rows.append([strip_prefix(title), topic, source, url])
 
     report_rows.append([])
     report_rows.append(["十二、运营建议"])
@@ -863,7 +890,7 @@ def update_weekly_report(report_sheet, all_records, new_items, trend_insights, c
     report_sheet.clear()
     report_sheet.update(report_rows)
 
-    print(f"weekly_report {GAME_NAME} 运营级舆情看板 V6.3 已更新")
+    print(f"weekly_report {GAME_NAME} 运营级舆情看板 V6.4 已更新")
 
 
 def build_feishu_summary(all_records, new_items, trend_insights, current_snapshot):
@@ -933,7 +960,7 @@ def send_feishu_message(summary):
         "card": {
             "config": {"wide_screen_mode": True},
             "header": {
-                "title": {"tag": "plain_text", "content": f"《{GAME_NAME}》舆情监控周报 V6.3"},
+                "title": {"tag": "plain_text", "content": f"《{GAME_NAME}》舆情监控周报 V6.4"},
                 "template": "blue"
             },
             "elements": [
