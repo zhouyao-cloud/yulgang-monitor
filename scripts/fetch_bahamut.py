@@ -65,10 +65,24 @@ KEYWORDS = [
     "商城", "課金", "儲值", "月卡", "禮包", "成長基金", "活動", "補償", "獎勵",
     "公會", "攻城", "跨服", "副本", "外掛", "工作室", "閃退", "登入", "黑屏",
     "BUG", "退坑", "廣告", "封號", "回檔", "疑問", "建議", "更新", "下載",
-    "帳號", "序號", "禮包碼", "新手", "教學"
+    "帳號", "序號", "禮包碼", "新手", "教學", "背包", "倉庫", "交易", "自動",
+    "任務", "主線", "客服", "公告", "聊天", "頻道"
 ]
 
 RISK_TOPICS = ["BUG/技术问题", "外挂/工作室"]
+
+DEMAND_RULES = {
+    "增加背包/仓库空间": ["背包", "倉庫", "格子", "空間不夠", "容量"],
+    "优化自动挂机": ["自動掛機", "自動", "掛機", "離線掛機"],
+    "提高掉宝/爆率": ["掉寶", "爆率", "打寶", "掉落"],
+    "优化储值/商城说明": ["儲值", "商城", "禮包", "月卡", "成長基金", "VIP", "至尊"],
+    "补充FAQ/玩法说明": ["請問", "疑問", "怎麼", "哪裡", "如何", "不明", "說明"],
+    "优化登录/账号体验": ["登入", "帳號", "綁定", "密碼", "驗證"],
+    "优化更新/下载体验": ["更新", "下載", "安裝", "版本"],
+    "增加活动/福利": ["活動", "獎勵", "補償", "福利", "序號", "禮包碼"],
+    "优化职业/PVP平衡": ["職業", "技能", "PVP", "PK", "騎士", "法師", "刺客"],
+    "增加交易/社交功能": ["交易", "拍賣", "公會", "好友", "聊天", "頻道"],
+}
 
 
 def strip_prefix(text):
@@ -95,7 +109,7 @@ def classify_topic(text):
     if any(w in clean_text for w in ["伺服器", "伺服", "排隊", "延遲", "斷線", "爆滿", "卡服"]):
         return "服务器问题"
 
-    if any(w in clean_text for w in ["商城", "課金", "儲值", "禮包", "月卡", "成長基金", "首儲", "廣告"]):
+    if any(w in clean_text for w in ["商城", "課金", "儲值", "禮包", "月卡", "成長基金", "首儲", "廣告", "VIP", "至尊"]):
         return "商城付费"
 
     if any(w in clean_text for w in ["裝備", "強化", "掉寶", "打寶", "爆率", "寶石", "戰力", "武器", "防具"]):
@@ -113,16 +127,19 @@ def classify_topic(text):
     if any(w in clean_text for w in ["活動", "獎勵", "補償", "簽到", "序號", "禮包碼", "兌換碼"]):
         return "活动奖励"
 
-    if any(w in clean_text for w in ["攻略", "心得", "教學", "新手", "怎麼玩", "玩法"]):
+    if any(w in clean_text for w in ["背包", "倉庫", "格子", "交易", "拍賣", "聊天", "頻道", "客服", "公告"]):
+        return "功能体验"
+
+    if any(w in clean_text for w in ["攻略", "心得", "教學", "新手", "怎麼玩", "玩法", "主線", "任務"]):
         return "攻略心得"
 
-    if any(w in clean_text for w in ["問題", "請問", "求解", "疑問", "為什麼", "怎麼辦"]):
-        return "玩家问题"
-
-    if any(w in clean_text for w in ["建議", "希望", "可以新增", "能不能", "應該", "建議官方"]):
+    if any(w in clean_text for w in ["建議", "希望", "可以新增", "能不能", "應該", "建議官方", "可不可以"]):
         return "玩家建议"
 
-    if len(clean_text) <= 8:
+    if any(w in clean_text for w in ["問題", "請問", "求解", "疑問", "為什麼", "怎麼辦", "哪裡", "多少"]):
+        return "玩家问题"
+
+    if len(clean_text) <= 10:
         return "社群闲聊"
 
     return "其他"
@@ -141,6 +158,17 @@ def classify_sentiment(text):
 
 def is_high_risk_text(text):
     return any(w in text for w in HIGH_RISK_WORDS)
+
+
+def classify_demand(text):
+    clean_text = strip_prefix(text)
+    matched = []
+
+    for demand, words in DEMAND_RULES.items():
+        if any(w in clean_text for w in words):
+            matched.append(demand)
+
+    return matched
 
 
 def fetch_bahamut_topics():
@@ -401,44 +429,12 @@ def build_risk_level(risk_rate):
     return "🟢 低风险"
 
 
-def build_operation_suggestions(topic_counter, risk_count):
-    suggestions = []
-
-    if risk_count >= 10:
-        suggestions.append("高风险关键词数量偏高，建议优先排查登录、闪退、封号、回档、外挂等集中问题。")
-
-    if topic_counter.get("BUG/技术问题", 0) >= 10:
-        suggestions.append("BUG/技术问题数量较高，建议按登录、闪退、黑屏、更新失败等二级问题拆分给研发排查。")
-
-    if topic_counter.get("玩家建议", 0) >= 10:
-        suggestions.append("Discord/社群建议较多，建议整理高频需求，形成版本优化池。")
-
-    if topic_counter.get("玩家问题", 0) >= 10:
-        suggestions.append("玩家疑问较多，建议客服/社群补充FAQ，降低重复咨询。")
-
-    if topic_counter.get("商城付费", 0) >= 10:
-        suggestions.append("商城付费讨论较多，建议检查礼包、月卡、成长基金与储值流程体验。")
-
-    if topic_counter.get("挂机成长", 0) >= 10:
-        suggestions.append("挂机成长讨论较高，建议关注离线收益、练功效率与玩家日常负担。")
-
-    if topic_counter.get("装备养成", 0) >= 10:
-        suggestions.append("装备养成讨论较多，建议关注强化成本、掉宝体验与战力追赶压力。")
-
-    if topic_counter.get("外挂/工作室", 0) >= 1:
-        suggestions.append("出现外挂/工作室相关反馈，建议持续监控是否影响打宝、公平性与玩家留存。")
-
-    if not suggestions:
-        suggestions.append("本期风险整体较低，建议继续观察玩家对活动、成长、付费与大型玩法的反馈变化。")
-
-    return suggestions
-
-
 def build_counters(records):
     source_counter = Counter()
     topic_counter = Counter()
     sentiment_counter = Counter()
     keyword_counter = Counter()
+    demand_counter = Counter()
 
     for row in records:
         source = row.get("source", "")
@@ -457,7 +453,10 @@ def build_counters(records):
             if kw in title:
                 keyword_counter[kw] += 1
 
-    return source_counter, topic_counter, sentiment_counter, keyword_counter
+        for demand in classify_demand(title):
+            demand_counter[demand] += 1
+
+    return source_counter, topic_counter, sentiment_counter, keyword_counter, demand_counter
 
 
 def build_discord_channel_counter(records):
@@ -490,11 +489,7 @@ def safe_json_loads(text):
 
 def get_previous_history(history_sheet):
     rows = history_sheet.get_all_records()
-
-    if not rows:
-        return None
-
-    return rows[-1]
+    return rows[-1] if rows else None
 
 
 def append_history(history_sheet, snapshot):
@@ -502,16 +497,8 @@ def append_history(history_sheet, snapshot):
 
     if not existing:
         history_sheet.append_row([
-            "run_time",
-            "total",
-            "new_count",
-            "risk_count",
-            "risk_rate",
-            "risk_level",
-            "source_counter",
-            "topic_counter",
-            "sentiment_counter",
-            "keyword_counter"
+            "run_time", "total", "new_count", "risk_count", "risk_rate", "risk_level",
+            "source_counter", "topic_counter", "sentiment_counter", "keyword_counter", "demand_counter"
         ])
 
     history_sheet.append_row([
@@ -524,7 +511,8 @@ def append_history(history_sheet, snapshot):
         json.dumps(snapshot["source_counter"], ensure_ascii=False),
         json.dumps(snapshot["topic_counter"], ensure_ascii=False),
         json.dumps(snapshot["sentiment_counter"], ensure_ascii=False),
-        json.dumps(snapshot["keyword_counter"], ensure_ascii=False)
+        json.dumps(snapshot["keyword_counter"], ensure_ascii=False),
+        json.dumps(snapshot["demand_counter"], ensure_ascii=False)
     ], value_input_option="USER_ENTERED")
 
 
@@ -537,7 +525,7 @@ def build_trend_analysis(current_snapshot, previous_history):
     prev_total = int(previous_history.get("total", 0) or 0)
     curr_total = current_snapshot["total"]
 
-    prev_risk = int(previous_history.get("risk_count", previous_history.get("risk_negative_count", 0)) or 0)
+    prev_risk = int(previous_history.get("risk_count", 0) or 0)
     curr_risk = current_snapshot["risk_count"]
 
     prev_topic = safe_json_loads(previous_history.get("topic_counter", ""))
@@ -565,7 +553,7 @@ def build_trend_analysis(current_snapshot, previous_history):
     for topic in [
         "BUG/技术问题", "玩家建议", "玩家问题", "商城付费", "挂机成长",
         "装备养成", "职业战斗", "外挂/工作室", "活动奖励", "公会玩法",
-        "登录/账号问题", "下载/更新问题", "服务器问题"
+        "登录/账号问题", "下载/更新问题", "服务器问题", "功能体验", "攻略心得"
     ]:
         curr_value = curr_topic.get(topic, 0)
         prev_value = int(prev_topic.get(topic, 0) or 0)
@@ -582,10 +570,40 @@ def build_trend_analysis(current_snapshot, previous_history):
     return insights
 
 
+def build_operation_suggestions(topic_counter, demand_counter, risk_count):
+    suggestions = []
+
+    if risk_count >= 10:
+        suggestions.append("高风险关键词数量偏高，建议优先排查登录、闪退、封号、回档、外挂等集中问题。")
+
+    if topic_counter.get("BUG/技术问题", 0) >= 10:
+        suggestions.append("BUG/技术问题数量较高，建议按登录、闪退、黑屏、更新失败等二级问题拆分给研发排查。")
+
+    if topic_counter.get("玩家建议", 0) >= 10:
+        suggestions.append("Discord/社群建议较多，建议整理高频需求，形成版本优化池。")
+
+    if topic_counter.get("玩家问题", 0) >= 10:
+        suggestions.append("玩家疑问较多，建议客服/社群补充FAQ，降低重复咨询。")
+
+    if topic_counter.get("商城付费", 0) >= 10:
+        suggestions.append("商城付费讨论较多，建议检查礼包、月卡、成长基金与储值流程体验。")
+
+    if topic_counter.get("功能体验", 0) >= 10:
+        suggestions.append("功能体验相关反馈较多，建议关注背包、仓库、交易、聊天频道等基础便利性问题。")
+
+    if demand_counter:
+        top_demand, count = demand_counter.most_common(1)[0]
+        suggestions.append(f"玩家需求池当前最高频需求为「{top_demand}」({count}次)，建议优先评估是否进入版本优化池。")
+
+    if not suggestions:
+        suggestions.append("本期风险整体较低，建议继续观察玩家对活动、成长、付费与大型玩法的反馈变化。")
+
+    return suggestions
+
+
 def build_player_voice(records, limit=5):
     selected = []
-
-    priority_topics = ["BUG/技术问题", "玩家建议", "玩家问题", "商城付费", "外挂/工作室"]
+    priority_topics = ["BUG/技术问题", "玩家建议", "玩家问题", "商城付费", "外挂/工作室", "功能体验"]
 
     for row in reversed(records):
         title = row.get("title", "")
@@ -609,11 +627,8 @@ def build_player_voice(records, limit=5):
             url = row.get("url", "")
             topic = classify_topic(title)
 
-            if not title:
-                continue
-
             item = (title, topic, source, url)
-            if item not in selected:
+            if title and item not in selected:
                 selected.append(item)
 
             if len(selected) >= limit:
@@ -622,7 +637,7 @@ def build_player_voice(records, limit=5):
     return selected[:limit]
 
 
-def build_ai_like_summary(topic_counter, keyword_counter, sentiment_counter, source_counter, discord_counter, total, new_count, risk_count, risk_level):
+def build_ai_like_summary(topic_counter, keyword_counter, sentiment_counter, source_counter, discord_counter, demand_counter, total, new_count, risk_count, risk_level):
     summaries = []
 
     top_source = source_counter.most_common(1)[0][0] if source_counter else "未知"
@@ -636,8 +651,12 @@ def build_ai_like_summary(topic_counter, keyword_counter, sentiment_counter, sou
             f"Discord 已接入监控，本期累计捕捉 {sum(discord_counter.values())} 条社群反馈，可提前发现玩家即时问题。"
         )
 
+    if demand_counter:
+        top_demand, count = demand_counter.most_common(1)[0]
+        summaries.append(f"玩家需求池中最高频需求为「{top_demand}」，出现 {count} 次，建议运营优先评估。")
+
     if topic_counter.get("BUG/技术问题", 0) >= 10:
-        summaries.append("BUG/技术问题数量较高，建议重点查看 Discord BUG反應 与 Google Play 差评内容，拆分登录、闪退、黑屏、更新失败等子问题。")
+        summaries.append("BUG/技术问题数量较高，建议重点查看 Discord BUG反應 与 Google Play 差评内容。")
 
     if topic_counter.get("玩家建议", 0) >= 10:
         summaries.append("玩家建议数量较高，说明社群中存在较明确的版本优化诉求，建议整理进入需求池。")
@@ -646,13 +665,7 @@ def build_ai_like_summary(topic_counter, keyword_counter, sentiment_counter, sou
         summaries.append("玩家疑问较多，建议补充FAQ、公告说明与社群机器人回复，降低客服重复答疑压力。")
 
     if topic_counter.get("商城付费", 0) >= 10:
-        summaries.append("商城付费相关讨论较多，但不应全部视为负面风险，建议区分正常付费讨论与储值异常、价格争议。")
-
-    if topic_counter.get("挂机成长", 0) >= 10:
-        summaries.append("挂机成长讨论较高，说明玩家对练功速度、离线收益和日常负担较敏感。")
-
-    if topic_counter.get("外挂/工作室", 0) >= 1:
-        summaries.append("外挂或工作室相关反馈已出现，建议提前建立舆情监控与官方回应预案。")
+        summaries.append("商城付费相关讨论较多，建议区分正常付费讨论与储值异常、价格争议。")
 
     if len(summaries) == 1:
         summaries.append("当前舆情整体平稳，暂未出现明显爆发风险。")
@@ -663,8 +676,8 @@ def build_ai_like_summary(topic_counter, keyword_counter, sentiment_counter, sou
 def update_weekly_report(report_sheet, all_records, new_items, trend_insights, current_snapshot):
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    source_counter, topic_counter, sentiment_counter, keyword_counter = build_counters(all_records)
-    new_source_counter, new_topic_counter, new_sentiment_counter, new_keyword_counter = build_counters(new_items)
+    source_counter, topic_counter, sentiment_counter, keyword_counter, demand_counter = build_counters(all_records)
+    new_source_counter, new_topic_counter, _, _, new_demand_counter = build_counters(new_items)
     discord_counter = build_discord_channel_counter(all_records)
     new_discord_counter = build_discord_channel_counter(new_items)
 
@@ -686,33 +699,22 @@ def update_weekly_report(report_sheet, all_records, new_items, trend_insights, c
 
     player_voices = build_player_voice(new_items if new_items else all_records, 5)
 
-    total = len(all_records)
-    risk_count = current_snapshot["risk_count"]
-    risk_rate = current_snapshot["risk_rate"]
-    risk_level = current_snapshot["risk_level"]
-
-    suggestions = build_operation_suggestions(topic_counter, risk_count)
+    suggestions = build_operation_suggestions(topic_counter, demand_counter, current_snapshot["risk_count"])
     ai_summaries = build_ai_like_summary(
-        topic_counter,
-        keyword_counter,
-        sentiment_counter,
-        source_counter,
-        discord_counter,
-        total,
-        current_snapshot["new_count"],
-        risk_count,
-        risk_level
+        topic_counter, keyword_counter, sentiment_counter, source_counter, discord_counter,
+        demand_counter, len(all_records), current_snapshot["new_count"], current_snapshot["risk_count"],
+        current_snapshot["risk_level"]
     )
 
     report_rows = []
 
-    report_rows.append([f"《{GAME_NAME}》运营级舆情看板 V6.1"])
+    report_rows.append([f"《{GAME_NAME}》运营级舆情看板 V6.2"])
     report_rows.append(["更新时间", now])
-    report_rows.append(["风险等级", risk_level])
-    report_rows.append(["总数据量", total])
+    report_rows.append(["风险等级", current_snapshot["risk_level"]])
+    report_rows.append(["总数据量", current_snapshot["total"]])
     report_rows.append(["本次新增", current_snapshot["new_count"]])
-    report_rows.append(["真实风险数量", risk_count])
-    report_rows.append(["真实风险占比", risk_rate])
+    report_rows.append(["真实风险数量", current_snapshot["risk_count"]])
+    report_rows.append(["真实风险占比", current_snapshot["risk_rate"]])
     report_rows.append([])
 
     report_rows.append(["一、AI运营摘要"])
@@ -732,28 +734,24 @@ def update_weekly_report(report_sheet, all_records, new_items, trend_insights, c
     report_rows.append(["三、Discord频道分布"])
     report_rows.append(["频道", "累计数量", "本次新增"])
     for channel_name in DISCORD_CHANNELS.keys():
-        report_rows.append([
-            channel_name,
-            discord_counter.get(channel_name, 0),
-            new_discord_counter.get(channel_name, 0)
-        ])
+        report_rows.append([channel_name, discord_counter.get(channel_name, 0), new_discord_counter.get(channel_name, 0)])
 
     report_rows.append([])
-    report_rows.append(["四、趋势变化分析"])
+    report_rows.append(["四、玩家需求池TOP10"])
+    report_rows.append(["需求", "出现次数"])
+    for demand, count in demand_counter.most_common(10):
+        report_rows.append([demand, count])
+
+    report_rows.append([])
+    report_rows.append(["五、趋势变化分析"])
     for i, insight in enumerate(trend_insights, start=1):
         report_rows.append([f"{i}. {insight}"])
 
     report_rows.append([])
-    report_rows.append(["五、来源分布"])
+    report_rows.append(["六、来源分布"])
     report_rows.append(["来源", "数量"])
     for source, count in source_counter.most_common():
         report_rows.append([source, count])
-
-    report_rows.append([])
-    report_rows.append(["六、情绪分布"])
-    report_rows.append(["情绪", "数量"])
-    for sentiment, count in sentiment_counter.most_common():
-        report_rows.append([sentiment, count])
 
     report_rows.append([])
     report_rows.append(["七、分类分布"])
@@ -784,35 +782,23 @@ def update_weekly_report(report_sheet, all_records, new_items, trend_insights, c
     for i, suggestion in enumerate(suggestions, start=1):
         report_rows.append([f"{i}. {suggestion}"])
 
-    report_rows.append([])
-    report_rows.append(["十二、最新内容TOP20"])
-    report_rows.append(["标题/评论", "分类", "情绪", "来源", "链接"])
-    for title, topic, sentiment, source, url in titles[-20:][::-1]:
-        report_rows.append([title, topic, sentiment, source, url])
-
     report_sheet.clear()
     report_sheet.update(report_rows)
 
-    print(f"weekly_report {GAME_NAME} 运营级舆情看板 V6.1 已更新")
+    print(f"weekly_report {GAME_NAME} 运营级舆情看板 V6.2 已更新")
 
 
 def build_feishu_summary(all_records, new_items, trend_insights, current_snapshot):
-    source_counter, topic_counter, sentiment_counter, keyword_counter = build_counters(all_records)
-    new_source_counter, new_topic_counter, _, _ = build_counters(new_items)
+    source_counter, topic_counter, sentiment_counter, keyword_counter, demand_counter = build_counters(all_records)
+    _, new_topic_counter, _, _, _ = build_counters(new_items)
     discord_counter = build_discord_channel_counter(all_records)
     new_discord_counter = build_discord_channel_counter(new_items)
 
-    suggestions = build_operation_suggestions(topic_counter, current_snapshot["risk_count"])
+    suggestions = build_operation_suggestions(topic_counter, demand_counter, current_snapshot["risk_count"])
 
     ai_summaries = build_ai_like_summary(
-        topic_counter,
-        keyword_counter,
-        sentiment_counter,
-        source_counter,
-        discord_counter,
-        len(all_records),
-        current_snapshot["new_count"],
-        current_snapshot["risk_count"],
+        topic_counter, keyword_counter, sentiment_counter, source_counter, discord_counter,
+        demand_counter, len(all_records), current_snapshot["new_count"], current_snapshot["risk_count"],
         current_snapshot["risk_level"]
     )
 
@@ -829,6 +815,8 @@ def build_feishu_summary(all_records, new_items, trend_insights, current_snapsho
         f"- {name}：累计 {discord_counter.get(name, 0)} / 新增 {new_discord_counter.get(name, 0)}"
         for name in DISCORD_CHANNELS.keys()
     ])
+
+    demand_text = "\n".join([f"- {k}：{v}" for k, v in demand_counter.most_common(10)]) or "- 暂无明显高频需求"
 
     voice_text = "\n".join([
         f"{i+1}. [{source}] {title[:80]}"
@@ -848,6 +836,7 @@ def build_feishu_summary(all_records, new_items, trend_insights, current_snapsho
         "ai_summary_text": ai_summary_text,
         "trend_text": trend_text,
         "discord_text": discord_text,
+        "demand_text": demand_text,
         "voice_text": voice_text
     }
 
@@ -864,46 +853,33 @@ def send_feishu_message(summary):
         "card": {
             "config": {"wide_screen_mode": True},
             "header": {
-                "title": {
-                    "tag": "plain_text",
-                    "content": f"《{GAME_NAME}》舆情监控周报 V6.1"
-                },
+                "title": {"tag": "plain_text", "content": f"《{GAME_NAME}》舆情监控周报 V6.2"},
                 "template": "blue"
             },
             "elements": [
-                {
-                    "tag": "div",
-                    "text": {
-                        "tag": "lark_md",
-                        "content": (
-                            f"**风险等级：** {summary['risk_level']}\n"
-                            f"**总数据量：** {summary['total']}\n"
-                            f"**本次新增：** {summary['new_count']}\n"
-                            f"**真实风险数量：** {summary['risk_count']}\n"
-                            f"**真实风险占比：** {summary['risk_rate']}"
-                        )
-                    }
-                },
+                {"tag": "div", "text": {"tag": "lark_md", "content": (
+                    f"**风险等级：** {summary['risk_level']}\n"
+                    f"**总数据量：** {summary['total']}\n"
+                    f"**本次新增：** {summary['new_count']}\n"
+                    f"**真实风险数量：** {summary['risk_count']}\n"
+                    f"**真实风险占比：** {summary['risk_rate']}"
+                )}},
                 {"tag": "hr"},
                 {"tag": "div", "text": {"tag": "lark_md", "content": f"**一、AI运营摘要**\n{summary['ai_summary_text']}"}},
                 {"tag": "div", "text": {"tag": "lark_md", "content": f"**二、本次新增问题TOP5**\n{summary['new_topic_text']}"}},
                 {"tag": "div", "text": {"tag": "lark_md", "content": f"**三、Discord频道分布**\n{summary['discord_text']}"}},
-                {"tag": "div", "text": {"tag": "lark_md", "content": f"**四、玩家原声TOP5**\n{summary['voice_text']}"}},
-                {"tag": "div", "text": {"tag": "lark_md", "content": f"**五、趋势变化分析**\n{summary['trend_text']}"}},
-                {"tag": "div", "text": {"tag": "lark_md", "content": f"**六、主要问题TOP5**\n{summary['topic_text']}"}},
-                {"tag": "div", "text": {"tag": "lark_md", "content": f"**七、热门关键词TOP10**\n{summary['keyword_text']}"}},
-                {"tag": "div", "text": {"tag": "lark_md", "content": f"**八、运营建议**\n{summary['suggestion_text']}"}},
-                {
-                    "tag": "action",
-                    "actions": [
-                        {
-                            "tag": "button",
-                            "text": {"tag": "plain_text", "content": "查看完整舆情看板"},
-                            "url": SHEET_URL,
-                            "type": "primary"
-                        }
-                    ]
-                }
+                {"tag": "div", "text": {"tag": "lark_md", "content": f"**四、玩家需求池TOP10**\n{summary['demand_text']}"}},
+                {"tag": "div", "text": {"tag": "lark_md", "content": f"**五、玩家原声TOP5**\n{summary['voice_text']}"}},
+                {"tag": "div", "text": {"tag": "lark_md", "content": f"**六、趋势变化分析**\n{summary['trend_text']}"}},
+                {"tag": "div", "text": {"tag": "lark_md", "content": f"**七、主要问题TOP5**\n{summary['topic_text']}"}},
+                {"tag": "div", "text": {"tag": "lark_md", "content": f"**八、热门关键词TOP10**\n{summary['keyword_text']}"}},
+                {"tag": "div", "text": {"tag": "lark_md", "content": f"**九、运营建议**\n{summary['suggestion_text']}"}},
+                {"tag": "action", "actions": [{
+                    "tag": "button",
+                    "text": {"tag": "plain_text", "content": "查看完整舆情看板"},
+                    "url": SHEET_URL,
+                    "type": "primary"
+                }]}
             ]
         }
     }
@@ -924,9 +900,6 @@ if __name__ == "__main__":
 
     all_items = bahamut_items + google_play_items + app_store_items + discord_items
 
-    for item in all_items[:10]:
-        print(item["source"], item["title"], item["topic"], item["sentiment"])
-
     client = get_client()
     workbook = client.open_by_key(SPREADSHEET_ID)
 
@@ -938,7 +911,7 @@ if __name__ == "__main__":
 
     all_records = raw_sheet.get_all_records()
 
-    source_counter, topic_counter, sentiment_counter, keyword_counter = build_counters(all_records)
+    source_counter, topic_counter, sentiment_counter, keyword_counter, demand_counter = build_counters(all_records)
 
     risk_count = get_risk_count_from_records(all_records)
     total = len(all_records)
@@ -956,7 +929,8 @@ if __name__ == "__main__":
         "source_counter": dict(source_counter),
         "topic_counter": dict(topic_counter),
         "sentiment_counter": dict(sentiment_counter),
-        "keyword_counter": dict(keyword_counter)
+        "keyword_counter": dict(keyword_counter),
+        "demand_counter": dict(demand_counter)
     }
 
     previous_history = get_previous_history(history_sheet)
