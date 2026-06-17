@@ -54,11 +54,6 @@ TRUE_P0_RISK_EVENTS = {
     "回档/数据异常",
 }
 
-INFO_OR_FAQ_EVENTS = {
-    "商城/VIP说明争议",
-    "礼包/月卡规则争议",
-}
-
 HIGH_RISK_WORDS = [
     "退坑", "詐騙", "騙", "外掛", "工作室", "封號", "鎖帳",
     "無法登入", "登入失敗", "黑屏", "閃退", "回檔", "當機",
@@ -848,6 +843,51 @@ def build_player_voice(records, limit=5):
     return selected[:limit]
 
 
+def build_grouped_player_voices(records, limit=3):
+    groups = {
+        "BUG原声TOP3": ["BUG/技术问题", "登录/账号问题", "下载/更新问题", "服务器问题"],
+        "付费原声TOP3": ["商城付费", "货币/道具说明"],
+        "建议原声TOP3": ["玩家建议", "功能体验", "装备养成", "活动奖励"],
+    }
+
+    result = {}
+
+    for group_name, topics in groups.items():
+        candidates = []
+
+        for row in records:
+            title = row.get("title", "")
+            source = row.get("source", "")
+            url = row.get("url", "")
+            topic = classify_topic(title)
+
+            if topic not in topics:
+                continue
+            if not is_valid_voice_text(title):
+                continue
+
+            score = voice_priority_score(title)
+            candidates.append((score, title, topic, source, url))
+
+        candidates.sort(key=lambda x: x[0], reverse=True)
+
+        selected = []
+        seen = set()
+
+        for score, title, topic, source, url in candidates:
+            clean = strip_prefix(title)
+            if clean in seen:
+                continue
+            seen.add(clean)
+            selected.append((title, topic, source, url))
+            if len(selected) >= limit:
+                break
+
+        result[group_name] = selected
+
+    return result
+
+
 def build_faq_drafts(demand_counter):
     drafts = []
     for demand, count in demand_counter.most_common(5):
@@ -993,6 +1033,7 @@ def update_weekly_report(report_sheet, all_records, new_items, trend_insights, c
         faq_event_counter
     )
     player_voices = build_player_voice(new_items if new_items else all_records, 5)
+    grouped_voices = build_grouped_player_voices(new_items if new_items else all_records, 3)
     faq_drafts = build_faq_drafts(demand_counter)
     alerts = build_alerts(current_snapshot, previous_history, new_issue_cluster_counter)
     top_three = build_top_three(action_plan, issue_cluster_counter, true_risk_event_counter, faq_event_counter)
@@ -1019,7 +1060,7 @@ def update_weekly_report(report_sheet, all_records, new_items, trend_insights, c
             risk_items.append((title, topic, row.get("source", ""), row.get("url", "")))
 
     report_rows = []
-    report_rows.append([f"《{GAME_NAME}》运营决策看板 V7.1"])
+    report_rows.append([f"《{GAME_NAME}》运营决策看板 V7.3"])
     report_rows.append(["更新时间", now])
     report_rows.append(["风险等级", current_snapshot["risk_level"]])
     report_rows.append(["总数据量", current_snapshot["total"]])
@@ -1140,25 +1181,37 @@ def update_weekly_report(report_sheet, all_records, new_items, trend_insights, c
         report_rows.append([kw, count])
 
     report_rows.append([])
-    report_rows.append(["十九、玩家原声TOP5"])
+    report_rows.append(["十九、BUG原声TOP3"])
     report_rows.append(["内容", "分类", "来源", "链接"])
-    for title, topic, source, url in player_voices:
+    for title, topic, source, url in grouped_voices.get("BUG原声TOP3", []):
         report_rows.append([strip_prefix(title), topic, source, url])
 
     report_rows.append([])
-    report_rows.append(["二十、重点风险反馈TOP20"])
+    report_rows.append(["二十、付费原声TOP3"])
+    report_rows.append(["内容", "分类", "来源", "链接"])
+    for title, topic, source, url in grouped_voices.get("付费原声TOP3", []):
+        report_rows.append([strip_prefix(title), topic, source, url])
+
+    report_rows.append([])
+    report_rows.append(["二十一、建议原声TOP3"])
+    report_rows.append(["内容", "分类", "来源", "链接"])
+    for title, topic, source, url in grouped_voices.get("建议原声TOP3", []):
+        report_rows.append([strip_prefix(title), topic, source, url])
+
+    report_rows.append([])
+    report_rows.append(["二十二、重点风险反馈TOP20"])
     report_rows.append(["标题/评论", "分类", "来源", "链接"])
     for title, topic, source, url in risk_items[-20:][::-1]:
         report_rows.append([strip_prefix(title), topic, source, url])
 
     report_rows.append([])
-    report_rows.append(["二十一、运营建议"])
+    report_rows.append(["二十三、运营建议"])
     for i, suggestion in enumerate(suggestions, 1):
         report_rows.append([f"{i}. {suggestion}"])
 
     report_sheet.clear()
     report_sheet.update(report_rows)
-    print(f"weekly_report {GAME_NAME} 运营决策看板 V7.1 已更新")
+    print(f"weekly_report {GAME_NAME} 运营决策看板 V7.3 已更新")
 
 
 def build_feishu_summary(all_records, new_items, trend_insights, current_snapshot, previous_history):
@@ -1185,6 +1238,7 @@ def build_feishu_summary(all_records, new_items, trend_insights, current_snapsho
         faq_event_counter
     )
     player_voices = build_player_voice(new_items if new_items else all_records, 5)
+    grouped_voices = build_grouped_player_voices(new_items if new_items else all_records, 3)
     faq_drafts = build_faq_drafts(demand_counter)
     alerts = build_alerts(current_snapshot, previous_history, new_issue_cluster_counter)
     top_three = build_top_three(action_plan, issue_cluster_counter, true_risk_event_counter, faq_event_counter)
@@ -1239,6 +1293,18 @@ def build_feishu_summary(all_records, new_items, trend_insights, current_snapsho
         "voice_text": "\n".join([
             f"{i+1}. [{source}] {strip_prefix(title)[:80]}"
             for i, (title, topic, source, url) in enumerate(player_voices)
+        ]) or "暂无",
+        "bug_voice_text": "\n".join([
+            f"{i+1}. [{source}] {strip_prefix(title)[:80]}"
+            for i, (title, topic, source, url) in enumerate(grouped_voices.get("BUG原声TOP3", []))
+        ]) or "暂无",
+        "pay_voice_text": "\n".join([
+            f"{i+1}. [{source}] {strip_prefix(title)[:80]}"
+            for i, (title, topic, source, url) in enumerate(grouped_voices.get("付费原声TOP3", []))
+        ]) or "暂无",
+        "suggest_voice_text": "\n".join([
+            f"{i+1}. [{source}] {strip_prefix(title)[:80]}"
+            for i, (title, topic, source, url) in enumerate(grouped_voices.get("建议原声TOP3", []))
         ]) or "暂无"
     }
 
@@ -1290,7 +1356,7 @@ def send_feishu_message(summary):
         "card": {
             "config": {"wide_screen_mode": True},
             "header": {
-                "title": {"tag": "plain_text", "content": f"《{GAME_NAME}》运营决策日报 V7.1"},
+                "title": {"tag": "plain_text", "content": f"《{GAME_NAME}》运营决策日报 V7.3"},
                 "template": "blue"
             },
             "elements": [
@@ -1316,11 +1382,13 @@ def send_feishu_message(summary):
                 {"tag": "div", "text": {"tag": "lark_md", "content": f"**十二、本次新增有效问题TOP5**\n{summary['new_topic_text']}"}},
                 {"tag": "div", "text": {"tag": "lark_md", "content": f"**十三、本次新增问题聚类TOP5**\n{summary['new_cluster_text']}"}},
                 {"tag": "div", "text": {"tag": "lark_md", "content": f"**十四、Discord频道分布**\n{summary['discord_text']}"}},
-                {"tag": "div", "text": {"tag": "lark_md", "content": f"**十五、玩家原声TOP5**\n{summary['voice_text']}"}},
-                {"tag": "div", "text": {"tag": "lark_md", "content": f"**十六、趋势变化分析**\n{summary['trend_text']}"}},
-                {"tag": "div", "text": {"tag": "lark_md", "content": f"**十七、有效问题TOP5**\n{summary['topic_text']}"}},
-                {"tag": "div", "text": {"tag": "lark_md", "content": f"**十八、热门关键词TOP10**\n{summary['keyword_text']}"}},
-                {"tag": "div", "text": {"tag": "lark_md", "content": f"**十九、运营建议**\n{summary['suggestion_text']}"}},
+                {"tag": "div", "text": {"tag": "lark_md", "content": f"**十五、BUG原声TOP3**\n{summary['bug_voice_text']}"}},
+                {"tag": "div", "text": {"tag": "lark_md", "content": f"**十六、付费原声TOP3**\n{summary['pay_voice_text']}"}},
+                {"tag": "div", "text": {"tag": "lark_md", "content": f"**十七、建议原声TOP3**\n{summary['suggest_voice_text']}"}},
+                {"tag": "div", "text": {"tag": "lark_md", "content": f"**十八、趋势变化分析**\n{summary['trend_text']}"}},
+                {"tag": "div", "text": {"tag": "lark_md", "content": f"**十九、有效问题TOP5**\n{summary['topic_text']}"}},
+                {"tag": "div", "text": {"tag": "lark_md", "content": f"**二十、热门关键词TOP10**\n{summary['keyword_text']}"}},
+                {"tag": "div", "text": {"tag": "lark_md", "content": f"**二十一、运营建议**\n{summary['suggestion_text']}"}},
                 {"tag": "action", "actions": [{
                     "tag": "button",
                     "text": {"tag": "plain_text", "content": "查看完整舆情看板"},
