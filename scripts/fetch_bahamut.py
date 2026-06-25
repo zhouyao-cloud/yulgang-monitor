@@ -48,19 +48,26 @@ headers = {"User-Agent": "Mozilla/5.0"}
 LOW_VALUE_TOPICS = ["其他", "社群闲聊", "社群互动"]
 
 TRUE_P0_RISK_EVENTS = {
+    "登录异常事件",
     "储值未到账",
-    "登录/账号异常",
     "闪退/黑屏/卡死",
     "外挂/工作室疑似影响游戏公平",
     "封号/锁号争议",
     "回档/数据异常",
 }
 
+EVENT_CANONICAL_MAP = {
+    "登录/账号异常": "登录异常事件",
+    "登录失败/应用ID错误": "登录异常事件",
+    "商城/VIP说明争议": "商城/VIP/月卡规则说明",
+    "礼包/月卡规则争议": "商城/VIP/月卡规则说明",
+}
+
 HIGH_RISK_WORDS = [
     "退坑", "詐騙", "騙", "外掛", "工作室", "封號", "鎖帳",
     "無法登入", "登入失敗", "黑屏", "閃退", "回檔", "當機",
     "卡死", "斷線", "儲值未到", "儲值沒到", "儲值未到账",
-    "未到帳", "沒到帳", "沒收到", "退款", "倒閉"
+    "未到帳", "沒到帳", "沒收到", "退款", "倒閉", "lnifailed", "應用ID錯誤"
 ]
 
 NEGATIVE_WORDS = [
@@ -133,7 +140,7 @@ ACTION_RULES = {
     "补充商城/VIP/礼包说明": ["商城", "VIP", "至尊", "月卡", "禮包", "成長基金", "鑽石"],
     "整理更新/下载异常处理公告": ["更新失敗", "無法下載", "下載", "安裝"],
     "整理外挂/工作室处理公告": ["外掛", "工作室", "腳本", "多開"],
-    "整理登录/账号异常处理FAQ": ["無法登入", "登入失敗", "帳號", "綁定"],
+    "整理登录/账号异常处理FAQ": ["無法登入", "登入失敗", "帳號", "綁定", "lnifailed", "應用ID錯誤"],
     "说明月卡/拍卖行权限规则": ["月卡", "拍賣行", "不能賣", "無法在拍賣行"],
 }
 
@@ -146,6 +153,12 @@ RISK_EVENT_RULES = {
     },
     "登录/账号异常": {
         "words": ["無法登入", "登入失敗", "登不進", "帳號", "綁定", "lnifailed"],
+        "level": "高",
+        "owner": "技术/客服",
+        "kind": "true_risk"
+    },
+    "登录失败/应用ID错误": {
+        "words": ["lnifailed", "應用ID錯誤"],
         "level": "高",
         "owner": "技术/客服",
         "kind": "true_risk"
@@ -199,7 +212,7 @@ ISSUE_CLUSTER_RULES = {
     "月卡/拍卖行权限": ["月卡", "拍賣行", "不能賣", "無法在拍賣行"],
     "钻石/储值礼物使用": ["鑽石", "儲值禮物", "買鑽石", "另要再課金"],
     "金币袋/兑换道具用途": ["金幣袋", "金幣", "兌換", "為何要賣"],
-    "登录失败/应用ID错误": ["無法登入", "登入失敗", "lnifailed", "應用ID錯誤"],
+    "登录异常/应用ID错误": ["無法登入", "登入失敗", "lnifailed", "應用ID錯誤", "登不進"],
     "任务/NPC/地图指引": ["任務", "主線", "NPC", "地圖", "找不到", "哪裡"],
     "装备强化/战力成长": ["裝備", "強化", "寶石", "戰力"],
     "活动奖励/福利领取": ["活動", "獎勵", "福利", "補償", "序號", "禮包碼"],
@@ -242,6 +255,10 @@ def strip_prefix(text):
     return clean.strip()
 
 
+def canonical_event_name(event_name):
+    return EVENT_CANONICAL_MAP.get(event_name, event_name)
+
+
 def platform_name(source):
     if source.startswith("Discord"):
         return "Discord"
@@ -271,7 +288,7 @@ def classify_sentiment(text):
 def classify_topic(text):
     t = strip_prefix(text)
     if any(w in t for w in ["外掛", "工作室", "腳本", "多開"]): return "外挂/工作室"
-    if any(w in t for w in ["BUG", "異常", "閃退", "黑屏", "無法登入", "登入失敗", "掉線", "延遲", "斷線", "當機", "回檔", "卡死", "lnifailed"]): return "BUG/技术问题"
+    if any(w in t for w in ["BUG", "異常", "閃退", "黑屏", "無法登入", "登入失敗", "掉線", "延遲", "斷線", "當機", "回檔", "卡死", "lnifailed", "應用ID錯誤"]): return "BUG/技术问题"
     if any(w in t for w in ["登入", "帳號", "綁定", "密碼", "驗證", "登不進", "進不去"]): return "登录/账号问题"
     if any(w in t for w in ["更新", "下載", "安裝", "版本", "補丁", "無法下載", "更新失敗"]): return "下载/更新问题"
     if any(w in t for w in ["伺服器", "伺服", "排隊", "延遲", "斷線", "爆滿", "卡服"]): return "服务器问题"
@@ -308,7 +325,7 @@ def is_valid_voice_text(text):
 def voice_priority_score(text):
     t = strip_prefix(text)
     score = 0
-    for w in ["請問", "為什麼", "希望", "建議", "不能", "無法", "沒收到", "閃退", "黑屏", "儲值", "外掛", "退坑", "哪裡", "怎麼"]:
+    for w in ["請問", "為什麼", "希望", "建議", "不能", "無法", "沒收到", "閃退", "黑屏", "儲值", "外掛", "退坑", "哪裡", "怎麼", "lnifailed", "應用ID錯誤"]:
         if w in t:
             score += 5
     for w in ["VIP", "至尊", "商城", "任務", "NPC", "金幣", "裝備", "強化", "活動", "更新", "月卡", "拍賣行", "鑽石"]:
@@ -335,9 +352,23 @@ def classify_issue_cluster(text): return match_rules(text, ISSUE_CLUSTER_RULES)
 def classify_risk_event(text):
     t = strip_prefix(text)
     matched = []
+    seen_canonical = set()
+
     for event, info in RISK_EVENT_RULES.items():
         if any(w in t for w in info["words"]):
-            matched.append((event, info["level"], info["owner"], info.get("kind", "unknown")))
+            canonical = canonical_event_name(event)
+            if canonical in seen_canonical:
+                continue
+
+            seen_canonical.add(canonical)
+            matched.append((
+                canonical,
+                info["level"],
+                info["owner"],
+                info.get("kind", "unknown"),
+                event
+            ))
+
     return matched
 
 
@@ -359,7 +390,7 @@ def fetch_bahamut_topics():
                     continue
                 seen.add(full_url)
                 rows.append({
-                    "collect_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "collect_time": get_taipei_now().strftime("%Y-%m-%d %H:%M:%S"),
                     "source": "Bahamut",
                     "topic": classify_topic(text),
                     "sentiment": classify_sentiment(text),
@@ -389,7 +420,7 @@ def fetch_google_play_reviews():
             else:
                 sentiment = classify_sentiment(content)
             rows.append({
-                "collect_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "collect_time": get_taipei_now().strftime("%Y-%m-%d %H:%M:%S"),
                 "source": "Google Play",
                 "topic": classify_topic(content),
                 "sentiment": sentiment,
@@ -423,7 +454,7 @@ def fetch_app_store_reviews():
             else:
                 sentiment = classify_sentiment(combined)
             rows.append({
-                "collect_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "collect_time": get_taipei_now().strftime("%Y-%m-%d %H:%M:%S"),
                 "source": "App Store",
                 "topic": classify_topic(combined),
                 "sentiment": sentiment,
@@ -466,7 +497,7 @@ async def fetch_discord_messages_async():
                     if not content:
                         continue
                     rows.append({
-                        "collect_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "collect_time": get_taipei_now().strftime("%Y-%m-%d %H:%M:%S"),
                         "source": f"Discord-{channel_name}",
                         "topic": classify_topic(content),
                         "sentiment": classify_sentiment(content),
@@ -511,6 +542,7 @@ def write_raw_data(sheet, items):
         url = row.get("url")
         if url:
             existing_urls.add(url)
+
     rows = []
     new_items = []
     for item in items:
@@ -518,8 +550,10 @@ def write_raw_data(sheet, items):
             continue
         rows.append([item["collect_time"], item["source"], item["topic"], item["title"], item["url"], item["sentiment"]])
         new_items.append(item)
+
     if rows:
         sheet.append_rows(rows, value_input_option="USER_ENTERED")
+
     print("本次抓到总数量:", len(items))
     print("去重后新增写入数量:", len(rows))
     return len(rows), new_items
@@ -546,12 +580,14 @@ def build_counters(records):
     faq_event_counter = Counter()
     issue_cluster_counter = Counter()
     risk_event_meta = {}
+    event_sub_counter = {}
 
     for row in records:
         source = row.get("source", "")
         title = row.get("title", "")
         sentiment = row.get("sentiment", "")
         topic = classify_topic(title)
+
         if source:
             source_counter[source] += 1
         if topic:
@@ -560,30 +596,40 @@ def build_counters(records):
             sentiment_counter[sentiment] += 1
 
         clean_title = strip_prefix(title)
+
         for kw in KEYWORDS:
             if kw in clean_title and kw not in STOP_KEYWORDS:
                 keyword_counter[kw] += 1
+
         for demand in classify_demand(title):
             demand_counter[demand] += 1
+
         for demand in classify_product_demand(title):
             product_demand_counter[demand] += 1
+
         for action in classify_action_item(title):
             action_counter[action] += 1
+
         for cluster in classify_issue_cluster(title):
             issue_cluster_counter[cluster] += 1
-        for event, level, owner, kind in classify_risk_event(title):
+
+        for event, level, owner, kind, raw_event in classify_risk_event(title):
             risk_event_counter[event] += 1
+
             if kind == "true_risk":
                 true_risk_event_counter[event] += 1
             elif kind == "faq":
                 faq_event_counter[event] += 1
+
             risk_event_meta[event] = {"level": level, "owner": owner, "kind": kind}
+            event_sub_counter.setdefault(event, Counter())
+            event_sub_counter[event][raw_event] += 1
 
     return (
         source_counter, topic_counter, sentiment_counter, keyword_counter,
         demand_counter, product_demand_counter, action_counter,
         risk_event_counter, risk_event_meta, issue_cluster_counter,
-        true_risk_event_counter, faq_event_counter
+        true_risk_event_counter, faq_event_counter, event_sub_counter
     )
 
 
@@ -680,6 +726,7 @@ def append_history(history_sheet, snapshot):
             "demand_counter", "product_demand_counter", "action_counter", "risk_event_counter",
             "issue_cluster_counter", "true_risk_event_counter", "faq_event_counter"
         ])
+
     history_sheet.append_row([
         snapshot["run_time"], snapshot["total"], snapshot["new_count"], snapshot["risk_count"],
         snapshot["risk_rate"], snapshot["risk_level"],
@@ -712,6 +759,7 @@ def compare_counter(curr_counter, prev_json):
 def build_trend_analysis(current_snapshot, previous_history):
     if not previous_history:
         return ["首次记录历史快照，暂无上期数据可对比。"]
+
     insights = []
     curr_total = current_snapshot["total"]
     curr_risk = current_snapshot["risk_count"]
@@ -719,6 +767,7 @@ def build_trend_analysis(current_snapshot, previous_history):
     prev_risk = int(previous_history.get("risk_count", 0) or 0)
     total_diff = curr_total - prev_total
     risk_diff = curr_risk - prev_risk
+
     if current_snapshot["new_count"] > 0 and current_snapshot["new_count"] >= curr_total * 0.5:
         insights.append("本次新增占比较高，可能包含首次接入或数据回填，不建议直接解读为舆情突然爆发。")
     elif current_snapshot["new_count"] <= 3:
@@ -729,6 +778,7 @@ def build_trend_analysis(current_snapshot, previous_history):
         insights.append("总舆情数据较上期暂无新增，说明近周期公开讨论热度相对平稳。")
     else:
         insights.append("总舆情数据较上期下降，可能是历史数据被清理或统计口径发生变化。")
+
     if risk_diff >= 5:
         insights.append(f"真实高风险问题较上期增加 {risk_diff} 条，需关注是否出现集中负面扩散。")
     elif risk_diff > 0:
@@ -737,14 +787,17 @@ def build_trend_analysis(current_snapshot, previous_history):
         insights.append("真实高风险问题较上期持平，暂未出现明显恶化。")
     else:
         insights.append(f"真实高风险问题较上期减少 {abs(risk_diff)} 条，舆情风险有所缓和。")
+
     topic_growth = compare_counter(current_snapshot["topic_counter"], previous_history.get("topic_counter", ""))
     for topic, now, old, diff, rate in topic_growth[:5]:
         if topic in LOW_VALUE_TOPICS:
             continue
         if diff >= 5:
             insights.append(f"{topic} 较上期增加 {diff} 条，已成为需要重点关注的变化点。")
+
     if len(insights) <= 2:
         insights.append("主要问题结构相对稳定，暂未出现明显新增风险点。")
+
     return insights
 
 
@@ -752,41 +805,36 @@ def init_event_tracker_sheet(sheet):
     values = sheet.get_all_values()
     if not values:
         sheet.append_row([
-            "event_id", "event_name", "kind", "level", "owner",
+            "event_id", "event_name", "event_subtypes", "kind", "level", "owner",
             "first_seen", "last_seen", "duration_days",
-            "total_count", "last_total_count", "today_new",
-            "status", "updated_at"
+            "total_count", "last_total_count", "cumulative_delta",
+            "batch_new_count", "status", "updated_at"
         ])
-
-
-def get_event_tracker_records(sheet):
-    init_event_tracker_sheet(sheet)
-    return sheet.get_all_records()
 
 
 def make_event_id(index):
     return f"EVT-{get_taipei_today().replace('-', '')}-{index:03d}"
 
 
-def update_event_tracker(sheet, true_risk_counter, faq_event_counter, risk_event_meta):
+def update_event_tracker(sheet, true_risk_counter, faq_event_counter, risk_event_meta, event_sub_counter, new_true_risk_counter, new_faq_event_counter):
     init_event_tracker_sheet(sheet)
+
     records = sheet.get_all_records()
     existing = {r.get("event_name"): r for r in records if r.get("event_name")}
 
     now = get_taipei_now().strftime("%Y-%m-%d %H:%M:%S")
     today = get_taipei_today()
+
     all_events = []
-
     for name, count in true_risk_counter.items():
-        all_events.append((name, count, "true_risk"))
-
+        all_events.append((name, count, "true_risk", int(new_true_risk_counter.get(name, 0))))
     for name, count in faq_event_counter.items():
-        all_events.append((name, count, "faq"))
+        all_events.append((name, count, "faq", int(new_faq_event_counter.get(name, 0))))
 
     output = []
     index = len(records) + 1
 
-    for name, count, kind in all_events:
+    for name, count, kind, batch_new in all_events:
         meta = risk_event_meta.get(name, {})
         old = existing.get(name, {})
         event_id = old.get("event_id") or make_event_id(index)
@@ -794,7 +842,7 @@ def update_event_tracker(sheet, true_risk_counter, faq_event_counter, risk_event
 
         first_seen = old.get("first_seen") or today
         last_total = int(old.get("total_count", 0) or 0)
-        today_new = max(int(count) - last_total, 0)
+        cumulative_delta = max(int(count) - last_total, 0)
 
         try:
             first_date = datetime.strptime(first_seen[:10], "%Y-%m-%d")
@@ -802,24 +850,32 @@ def update_event_tracker(sheet, true_risk_counter, faq_event_counter, risk_event
         except Exception:
             duration_days = 1
 
+        sub_counter = event_sub_counter.get(name, Counter())
+        subtypes = "、".join([f"{k}({v})" for k, v in sub_counter.most_common(5)]) if sub_counter else name
+
         if kind == "true_risk":
-            if today_new >= 5:
+            if batch_new >= 5:
                 status = "爆发中"
-            elif today_new > 0:
-                status = "新增观察"
+            elif batch_new > 0:
+                status = "本次新增观察"
+            elif cumulative_delta > 0:
+                status = "累计增加"
             else:
                 status = old.get("status") or "持续观察"
         else:
-            if today_new >= 5:
-                status = "FAQ待处理"
-            elif today_new > 0:
-                status = "规则说明新增"
+            if batch_new >= 8:
+                status = "FAQ需求爆发"
+            elif batch_new > 0:
+                status = "本次新增FAQ需求"
+            elif cumulative_delta > 0:
+                status = "累计增加"
             else:
                 status = old.get("status") or "累计观察"
 
         output.append([
             event_id,
             name,
+            subtypes,
             kind,
             meta.get("level", "中"),
             meta.get("owner", "运营"),
@@ -828,17 +884,18 @@ def update_event_tracker(sheet, true_risk_counter, faq_event_counter, risk_event
             duration_days,
             int(count),
             last_total,
-            today_new,
+            cumulative_delta,
+            batch_new,
             status,
             now
         ])
 
     sheet.clear()
     sheet.append_row([
-        "event_id", "event_name", "kind", "level", "owner",
+        "event_id", "event_name", "event_subtypes", "kind", "level", "owner",
         "first_seen", "last_seen", "duration_days",
-        "total_count", "last_total_count", "today_new",
-        "status", "updated_at"
+        "total_count", "last_total_count", "cumulative_delta",
+        "batch_new_count", "status", "updated_at"
     ])
 
     if output:
@@ -851,14 +908,14 @@ def build_event_lifecycle_text(event_rows, limit=5):
     if not event_rows:
         return "- 暂无持续追踪事件"
 
-    sorted_rows = sorted(event_rows, key=lambda x: (x[10], x[8]), reverse=True)
+    sorted_rows = sorted(event_rows, key=lambda x: (x[12], x[9]), reverse=True)
     lines = []
 
     for row in sorted_rows[:limit]:
-        event_id, name, kind, level, owner, first_seen, last_seen, duration, total, last_total, today_new, status, updated_at = row
+        event_id, name, subtypes, kind, level, owner, first_seen, last_seen, duration, total, last_total, cumulative_delta, batch_new, status, updated_at = row
         tag = "真实风险" if kind == "true_risk" else "规则说明"
         lines.append(
-            f"- {event_id}｜{name}｜{tag}｜累计{total}｜今日新增{today_new}｜持续{duration}天｜{status}｜{owner}"
+            f"- {event_id}｜{name}｜{tag}｜累计{total}｜本次新增{batch_new}｜累计新增{cumulative_delta}｜持续{duration}天｜{status}｜{owner}"
         )
 
     return "\n".join(lines)
@@ -868,23 +925,21 @@ def build_explosion_alerts(event_rows):
     alerts = []
 
     for row in event_rows:
-        event_id, name, kind, level, owner, first_seen, last_seen, duration, total, last_total, today_new, status, updated_at = row
+        event_id, name, subtypes, kind, level, owner, first_seen, last_seen, duration, total, last_total, cumulative_delta, batch_new, status, updated_at = row
 
-        if kind == "true_risk" and today_new >= 5:
-            alerts.append(("🚨 真实风险爆发", f"{name} 今日新增 {today_new} 条，累计 {total} 条，建议 {owner} 立即核查。"))
-        elif kind == "true_risk" and today_new >= 2:
-            alerts.append(("⚠️ 真实风险升温", f"{name} 今日新增 {today_new} 条，累计 {total} 条，建议持续观察。"))
-        elif kind == "faq" and today_new >= 8:
-            alerts.append(("📌 FAQ需求爆发", f"{name} 今日新增 {today_new} 条，建议运营补充公告或FAQ。"))
+        if kind == "true_risk" and batch_new >= 5:
+            alerts.append(("🚨 真实风险爆发", f"{name} 本次新增 {batch_new} 条，累计 {total} 条，建议 {owner} 立即核查。"))
+        elif kind == "true_risk" and batch_new >= 2:
+            alerts.append(("⚠️ 真实风险升温", f"{name} 本次新增 {batch_new} 条，累计 {total} 条，建议持续观察。"))
+        elif kind == "faq" and batch_new >= 8:
+            alerts.append(("📌 FAQ需求爆发", f"{name} 本次新增 {batch_new} 条，建议运营补充公告或FAQ。"))
 
     return alerts[:5]
 
 
 def build_alerts(current_snapshot, previous_history, new_issue_cluster_counter, event_rows):
     alerts = []
-
-    explosion_alerts = build_explosion_alerts(event_rows)
-    alerts.extend(explosion_alerts)
+    alerts.extend(build_explosion_alerts(event_rows))
 
     risk_count = current_snapshot["risk_count"]
     new_count = current_snapshot["new_count"]
@@ -910,9 +965,9 @@ def build_alerts(current_snapshot, previous_history, new_issue_cluster_counter, 
         if new_issue_cluster_counter:
             for name, count in new_issue_cluster_counter.most_common(3):
                 if count >= 3:
-                    alerts.append(("🆕 今日新增热点", f"{name} 今日新增 {count} 条，建议关注。"))
+                    alerts.append(("🆕 本次新增热点", f"{name} 本次新增 {count} 条，建议关注。"))
     else:
-        alerts.append(("🟢 今日新增为0", "本次没有新增舆情，以下热点均为累计口径，不视为今日新增。"))
+        alerts.append(("🟢 本次新增为0", "本次没有新增舆情，事件追踪中的新增已区分为累计新增/本次新增。"))
 
     if not alerts:
         alerts.append(("🟢 今日无明显预警", "当前未触发高风险或异常增长预警。"))
@@ -994,7 +1049,6 @@ def build_grouped_player_voices(records, limit=3):
 
     for group_name, topics in groups.items():
         candidates = []
-
         for row in records:
             title = row.get("title", "")
             source = row.get("source", "")
@@ -1013,7 +1067,6 @@ def build_grouped_player_voices(records, limit=3):
 
         selected = []
         seen = set()
-
         for score, title, topic, source, url in candidates:
             clean = strip_prefix(title)
             if clean in seen:
@@ -1040,12 +1093,12 @@ def build_faq_drafts(demand_counter):
 def build_top_three(action_plan, issue_cluster_counter, true_risk_event_counter, faq_event_counter, event_rows):
     items = []
 
-    active_true_risks = [r for r in event_rows if r[2] == "true_risk"]
-    active_true_risks.sort(key=lambda x: (x[10], x[8]), reverse=True)
+    active_true_risks = [r for r in event_rows if r[3] == "true_risk"]
+    active_true_risks.sort(key=lambda x: (x[12], x[9]), reverse=True)
 
     if active_true_risks:
         row = active_true_risks[0]
-        items.append(f"追踪事件：{row[1]}（累计{row[8]}｜今日新增{row[10]}｜持续{row[7]}天）")
+        items.append(f"追踪事件：{row[1]}（累计{row[9]}｜本次新增{row[12]}｜持续{row[8]}天）")
     elif true_risk_event_counter:
         name, count = true_risk_event_counter.most_common(1)[0]
         items.append(f"处理真实风险：{name}（{count}次）")
@@ -1063,7 +1116,7 @@ def build_top_three(action_plan, issue_cluster_counter, true_risk_event_counter,
         items.append(f"推进行动项：{item}（{p}｜{owner}）")
 
     while len(items) < 3:
-        items.append("今日新增较少，维持日常监控即可")
+        items.append("本次新增较少，维持日常监控即可")
 
     return items[:3]
 
@@ -1071,10 +1124,10 @@ def build_top_three(action_plan, issue_cluster_counter, true_risk_event_counter,
 def build_operation_suggestions(filtered_topic_counter, demand_counter, product_demand_counter, action_counter, true_risk_event_counter, faq_event_counter, risk_count, event_rows):
     suggestions = []
 
-    active_exploding = [r for r in event_rows if r[2] == "true_risk" and int(r[10]) >= 5]
+    active_exploding = [r for r in event_rows if r[3] == "true_risk" and int(r[12]) >= 5]
     if active_exploding:
         r = active_exploding[0]
-        suggestions.append(f"当前存在真实风险爆发事件「{r[1]}」，今日新增 {r[10]} 条，建议 {r[4]} 立即核查。")
+        suggestions.append(f"当前存在真实风险爆发事件「{r[1]}」，本次新增 {r[12]} 条，建议 {r[5]} 立即核查。")
 
     if true_risk_event_counter:
         event, count = true_risk_event_counter.most_common(1)[0]
@@ -1121,11 +1174,11 @@ def build_ai_like_summary(filtered_topic_counter, source_counter, discord_counte
     if sum(discord_counter.values()) > 0:
         summaries.append(f"Discord 已接入监控，本期累计捕捉 {sum(discord_counter.values())} 条社群反馈，可提前发现玩家即时问题。")
 
-    active_events = [r for r in event_rows if r[2] == "true_risk"]
+    active_events = [r for r in event_rows if r[3] == "true_risk"]
     if active_events:
-        active_events.sort(key=lambda x: (x[10], x[8]), reverse=True)
+        active_events.sort(key=lambda x: (x[12], x[9]), reverse=True)
         r = active_events[0]
-        summaries.append(f"当前重点追踪事件为「{r[1]}」，累计 {r[8]} 条，今日新增 {r[10]} 条，已持续 {r[7]} 天。")
+        summaries.append(f"当前重点追踪事件为「{r[1]}」，累计 {r[9]} 条，本次新增 {r[12]} 条，累计新增 {r[11]} 条，已持续 {r[8]} 天。")
 
     if true_risk_event_counter:
         event, count = true_risk_event_counter.most_common(1)[0]
@@ -1168,11 +1221,12 @@ def update_weekly_report(report_sheet, all_records, new_items, trend_insights, c
         source_counter, topic_counter, sentiment_counter, keyword_counter,
         demand_counter, product_demand_counter, action_counter,
         risk_event_counter, risk_event_meta, issue_cluster_counter,
-        true_risk_event_counter, faq_event_counter
+        true_risk_event_counter, faq_event_counter, event_sub_counter
     ) = build_counters(all_records)
+
     (
-        new_source_counter, new_topic_counter, _, _, _, _, _, _, _, new_issue_cluster_counter,
-        new_true_risk_event_counter, new_faq_event_counter
+        _, new_topic_counter, _, _, _, _, _, _, _, new_issue_cluster_counter,
+        _, _, _
     ) = build_counters(new_items)
 
     filtered_topic_counter = build_filtered_topic_counter(topic_counter)
@@ -1181,6 +1235,7 @@ def update_weekly_report(report_sheet, all_records, new_items, trend_insights, c
     new_discord_counter = build_discord_channel_counter(new_items)
     channel_health_rows = build_discord_channel_health(all_records)
     platform_rows = build_platform_negative_rate(all_records)
+
     action_plan = build_action_plan(
         action_counter,
         risk_event_counter,
@@ -1189,6 +1244,7 @@ def update_weekly_report(report_sheet, all_records, new_items, trend_insights, c
         true_risk_event_counter,
         faq_event_counter
     )
+
     grouped_voices = build_grouped_player_voices(new_items if new_items else all_records, 3)
     faq_drafts = build_faq_drafts(demand_counter)
     alerts = build_alerts(current_snapshot, previous_history, new_issue_cluster_counter, event_rows)
@@ -1216,7 +1272,7 @@ def update_weekly_report(report_sheet, all_records, new_items, trend_insights, c
             risk_items.append((title, topic, row.get("source", ""), row.get("url", "")))
 
     report_rows = []
-    report_rows.append([f"《{GAME_NAME}》运营决策看板 V8.0"])
+    report_rows.append([f"《{GAME_NAME}》运营决策看板 V8.2"])
     report_rows.append(["更新时间", now])
     report_rows.append(["风险等级", current_snapshot["risk_level"]])
     report_rows.append(["总数据量", current_snapshot["total"]])
@@ -1231,9 +1287,9 @@ def update_weekly_report(report_sheet, all_records, new_items, trend_insights, c
 
     report_rows.append([])
     report_rows.append(["二、事件生命周期追踪TOP5"])
-    report_rows.append(["事件ID", "事件", "类型", "等级", "负责人", "首次发现", "最近出现", "持续天数", "累计", "今日新增", "状态"])
-    for row in sorted(event_rows, key=lambda x: (x[10], x[8]), reverse=True)[:5]:
-        report_rows.append([row[0], row[1], row[2], row[3], row[4], row[5], row[6], row[7], row[8], row[10], row[11]])
+    report_rows.append(["事件ID", "事件", "子事件合并", "类型", "等级", "负责人", "首次发现", "最近出现", "持续天数", "累计", "累计新增", "本次新增", "状态"])
+    for row in sorted(event_rows, key=lambda x: (x[12], x[9]), reverse=True)[:5]:
+        report_rows.append([row[0], row[1], row[2], row[3], row[4], row[5], row[6], row[7], row[8], row[9], row[11], row[12], row[13]])
 
     report_rows.append([])
     report_rows.append(["三、预警中心"])
@@ -1373,7 +1429,7 @@ def update_weekly_report(report_sheet, all_records, new_items, trend_insights, c
 
     report_sheet.clear()
     report_sheet.update(report_rows)
-    print(f"weekly_report {GAME_NAME} 运营决策看板 V8.0 已更新")
+    print(f"weekly_report {GAME_NAME} 运营决策看板 V8.2 已更新")
 
 
 def build_feishu_summary(all_records, new_items, trend_insights, current_snapshot, previous_history, event_rows):
@@ -1381,9 +1437,13 @@ def build_feishu_summary(all_records, new_items, trend_insights, current_snapsho
         source_counter, topic_counter, sentiment_counter, keyword_counter,
         demand_counter, product_demand_counter, action_counter,
         risk_event_counter, risk_event_meta, issue_cluster_counter,
-        true_risk_event_counter, faq_event_counter
+        true_risk_event_counter, faq_event_counter, event_sub_counter
     ) = build_counters(all_records)
-    _, new_topic_counter, _, _, _, _, _, _, _, new_issue_cluster_counter, _, _ = build_counters(new_items)
+
+    (
+        _, new_topic_counter, _, _, _, _, _, _, _, new_issue_cluster_counter,
+        _, _, _
+    ) = build_counters(new_items)
 
     filtered_topic_counter = build_filtered_topic_counter(topic_counter)
     new_filtered_topic_counter = build_filtered_topic_counter(new_topic_counter)
@@ -1391,6 +1451,7 @@ def build_feishu_summary(all_records, new_items, trend_insights, current_snapsho
     new_discord_counter = build_discord_channel_counter(new_items)
     channel_health_rows = build_discord_channel_health(all_records)
     platform_rows = build_platform_negative_rate(all_records)
+
     action_plan = build_action_plan(
         action_counter,
         risk_event_counter,
@@ -1399,6 +1460,7 @@ def build_feishu_summary(all_records, new_items, trend_insights, current_snapsho
         true_risk_event_counter,
         faq_event_counter
     )
+
     grouped_voices = build_grouped_player_voices(new_items if new_items else all_records, 3)
     faq_drafts = build_faq_drafts(demand_counter)
     alerts = build_alerts(current_snapshot, previous_history, new_issue_cluster_counter, event_rows)
@@ -1506,7 +1568,7 @@ def send_feishu_message(summary):
         "card": {
             "config": {"wide_screen_mode": True},
             "header": {
-                "title": {"tag": "plain_text", "content": f"《{GAME_NAME}》运营决策日报 V8.0"},
+                "title": {"tag": "plain_text", "content": f"《{GAME_NAME}》运营决策日报 V8.2"},
                 "template": "blue"
             },
             "elements": [
@@ -1590,16 +1652,22 @@ if __name__ == "__main__":
         source_counter, topic_counter, sentiment_counter, keyword_counter,
         demand_counter, product_demand_counter, action_counter,
         risk_event_counter, risk_event_meta, issue_cluster_counter,
-        true_risk_event_counter, faq_event_counter
+        true_risk_event_counter, faq_event_counter, event_sub_counter
     ) = build_counters(all_records)
 
-    _, _, _, _, _, _, _, _, _, _, new_true_risk_event_counter, new_faq_event_counter = build_counters(new_items)
+    (
+        _, _, _, _, _, _, _, _, _, _,
+        new_true_risk_event_counter, new_faq_event_counter, new_event_sub_counter
+    ) = build_counters(new_items)
 
     event_rows = update_event_tracker(
         event_sheet,
         true_risk_event_counter,
         faq_event_counter,
-        risk_event_meta
+        risk_event_meta,
+        event_sub_counter,
+        new_true_risk_event_counter,
+        new_faq_event_counter
     )
 
     risk_count = get_risk_count_from_records(all_records)
