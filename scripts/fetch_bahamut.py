@@ -13,7 +13,26 @@ from google.oauth2.service_account import Credentials
 from google_play_scraper import reviews, Sort
 from app_store_scraper import AppStore
 
-GAME_NAME = "錫葛尼斯：紅月再臨"
+RUN_ISSUES = []
+
+
+def get_env(name, default):
+    return os.environ.get(name) or default
+
+
+def get_env_int(name, default):
+    try:
+        return int(get_env(name, str(default)))
+    except ValueError:
+        RUN_ISSUES.append({
+            "source": "config",
+            "level": "warning",
+            "message": f"{name} 配置无效，已使用默认值 {default}"
+        })
+        return default
+
+
+GAME_NAME = get_env("GAME_NAME", "錫葛尼斯：紅月再臨")
 
 BASE_URL = "https://forum.gamer.com.tw"
 BOARD_BSN = "84023"
@@ -26,14 +45,14 @@ APP_STORE_APP_ID = 6756251184
 APP_STORE_APP_NAME = "redmoon"
 APP_STORE_URL = "https://apps.apple.com/app/id6756251184"
 
-SPREADSHEET_ID = "14Y_HbfXTNYvkbufc5tgys2YGl4msBWASbggllNCfLyQ"
+SPREADSHEET_ID = get_env("SPREADSHEET_ID", "14Y_HbfXTNYvkbufc5tgys2YGl4msBWASbggllNCfLyQ")
 RAW_SHEET_NAME = "raw_data"
 REPORT_SHEET_NAME = "weekly_report"
 HISTORY_SHEET_NAME = "weekly_history"
 PUSH_LOG_SHEET_NAME = "push_log"
 EVENT_TRACKER_SHEET_NAME = "event_tracker"
 
-SHEET_URL = "https://docs.google.com/spreadsheets/d/14Y_HbfXTNYvkbufc5tgys2YGl4msBWASbggllNCfLyQ/edit"
+SHEET_URL = get_env("SHEET_URL", f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/edit")
 
 DISCORD_CHANNELS = {
     "錫葛尼斯議事廳": 1426406162190041114,
@@ -42,7 +61,7 @@ DISCORD_CHANNELS = {
     "疑問": 1426406163020382227,
 }
 
-DISCORD_FETCH_LIMIT = 100
+DISCORD_FETCH_LIMIT = get_env_int("DISCORD_FETCH_LIMIT", 100)
 headers = {"User-Agent": "Mozilla/5.0"}
 
 LOW_VALUE_TOPICS = ["其他", "社群闲聊", "社群互动"]
@@ -239,6 +258,23 @@ def get_taipei_today():
     return get_taipei_now().strftime("%Y-%m-%d")
 
 
+def record_run_issue(source, message, level="warning"):
+    RUN_ISSUES.append({
+        "source": source,
+        "level": level,
+        "message": str(message)[:300]
+    })
+
+
+def format_run_issues():
+    if not RUN_ISSUES:
+        return "- 全部数据源抓取正常"
+    return "\n".join([
+        f"- {issue['level']}｜{issue['source']}｜{issue['message']}"
+        for issue in RUN_ISSUES
+    ])
+
+
 def strip_prefix(text):
     if not text:
         return ""
@@ -399,6 +435,7 @@ def fetch_bahamut_topics():
                 })
     except Exception as e:
         print("Bahamut 抓取失败:", str(e))
+        record_run_issue("Bahamut", e)
     print("Bahamut 抓到数量:", len(rows))
     return rows
 
@@ -430,6 +467,7 @@ def fetch_google_play_reviews():
         print("Google Play 抓到评论数量:", len(rows))
     except Exception as e:
         print("Google Play 抓取失败:", str(e))
+        record_run_issue("Google Play", e)
     return rows
 
 
@@ -464,6 +502,7 @@ def fetch_app_store_reviews():
         print("App Store 抓到评论数量:", len(rows))
     except Exception as e:
         print("App Store 抓取失败:", str(e))
+        record_run_issue("App Store", e)
     return rows
 
 
@@ -472,6 +511,7 @@ async def fetch_discord_messages_async():
     rows = []
     if not token:
         print("未配置 DISCORD_TOKEN，跳过 Discord 抓取")
+        record_run_issue("Discord", "未配置 DISCORD_TOKEN，已跳过 Discord 抓取", "info")
         return rows
     intents = discord.Intents.default()
     intents.message_content = True
@@ -488,6 +528,7 @@ async def fetch_discord_messages_async():
                         channel = await client.fetch_channel(channel_id)
                     except Exception as e:
                         print(f"Discord频道获取失败 {channel_name}: {e}")
+                        record_run_issue(f"Discord-{channel_name}", e)
                         continue
                 count = 0
                 async for msg in channel.history(limit=DISCORD_FETCH_LIMIT):
@@ -508,12 +549,14 @@ async def fetch_discord_messages_async():
                 print(f"Discord {channel_name} 抓到消息数量:", count)
         except Exception as e:
             print("Discord 抓取失败:", str(e))
+            record_run_issue("Discord", e)
         await client.close()
 
     try:
         await client.start(token)
     except Exception as e:
         print("Discord Bot 启动失败:", str(e))
+        record_run_issue("Discord", e)
     return rows
 
 
@@ -522,7 +565,10 @@ def fetch_discord_messages():
 
 
 def get_client():
-    service_account_info = json.loads(os.environ["GOOGLE_SERVICE_ACCOUNT_JSON"])
+    service_account_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON")
+    if not service_account_json:
+        raise RuntimeError("未配置 GOOGLE_SERVICE_ACCOUNT_JSON，无法写入 Google Sheet")
+    service_account_info = json.loads(service_account_json)
     scopes = ["https://www.googleapis.com/auth/spreadsheets"]
     credentials = Credentials.from_service_account_info(service_account_info, scopes=scopes)
     return gspread.authorize(credentials)
@@ -1281,6 +1327,11 @@ def update_weekly_report(report_sheet, all_records, new_items, trend_insights, c
     report_rows.append(["真实风险占比", current_snapshot["risk_rate"]])
     report_rows.append([])
 
+    report_rows.append(["数据源抓取状态"])
+    for line in format_run_issues().splitlines():
+        report_rows.append([line])
+    report_rows.append([])
+
     report_rows.append(["一、今日最重要的3件事"])
     for i, item in enumerate(top_three, 1):
         report_rows.append([f"{i}. {item}"])
@@ -1486,6 +1537,7 @@ def build_feishu_summary(all_records, new_items, trend_insights, current_snapsho
         "risk_count": current_snapshot["risk_count"],
         "risk_rate": current_snapshot["risk_rate"],
         "risk_level": current_snapshot["risk_level"],
+        "run_issue_text": format_run_issues(),
         "top_three_text": "\n".join([f"{i+1}. {x}" for i, x in enumerate(top_three)]),
         "event_lifecycle_text": build_event_lifecycle_text(event_rows, 5),
         "alert_text": "\n".join([f"- {level}｜{text}" for level, text in alerts]),
@@ -1580,6 +1632,7 @@ def send_feishu_message(summary):
                     f"**真实风险占比：** {summary['risk_rate']}"
                 )}},
                 {"tag": "hr"},
+                {"tag": "div", "text": {"tag": "lark_md", "content": f"**数据源抓取状态**\n{summary['run_issue_text']}"}},
                 {"tag": "div", "text": {"tag": "lark_md", "content": f"**一、今日最重要的3件事**\n{summary['top_three_text']}"}},
                 {"tag": "div", "text": {"tag": "lark_md", "content": f"**二、事件生命周期追踪**\n{summary['event_lifecycle_text']}"}},
                 {"tag": "div", "text": {"tag": "lark_md", "content": f"**三、预警中心**\n{summary['alert_text']}"}},
@@ -1683,6 +1736,7 @@ if __name__ == "__main__":
         "risk_count": risk_count,
         "risk_rate": risk_rate,
         "risk_level": risk_level,
+        "run_issues": list(RUN_ISSUES),
         "source_counter": dict(source_counter),
         "topic_counter": dict(topic_counter),
         "sentiment_counter": dict(sentiment_counter),
