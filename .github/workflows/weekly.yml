@@ -2,6 +2,12 @@ name: Weekly Monitor
 
 on:
   workflow_dispatch:
+    inputs:
+      force_feishu_push:
+        description: "Force Feishu push even if today's report was already sent"
+        required: false
+        type: boolean
+        default: false
 
   schedule:
     # 台湾/北京时间 07:00、07:30、08:00、08:30、09:00、09:30、10:00
@@ -33,12 +39,18 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          pip install requests beautifulsoup4 gspread discord.py google-auth google-play-scraper app-store-scraper
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
       - name: Fetch Monitor Data
         env:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
           DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
+          SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
+          SHEET_URL: ${{ secrets.SHEET_URL }}
+          GAME_NAME: ${{ vars.GAME_NAME }}
+          DISCORD_FETCH_LIMIT: ${{ vars.DISCORD_FETCH_LIMIT }}
+          FORCE_FEISHU_PUSH: ${{ github.event_name == 'workflow_dispatch' && inputs.force_feishu_push || false }}
         run: |
           python scripts/fetch_bahamut.py

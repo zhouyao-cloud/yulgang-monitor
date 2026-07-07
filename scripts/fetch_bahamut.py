@@ -1952,10 +1952,14 @@ if __name__ == "__main__":
     append_history(history_sheet, current_snapshot)
 
     push_sheet = get_or_create_sheet(workbook, PUSH_LOG_SHEET_NAME)
+    force_feishu_push = get_env("FORCE_FEISHU_PUSH", "false").lower() in ("1", "true", "yes", "y")
 
-    if already_pushed_today(push_sheet):
+    if already_pushed_today(push_sheet) and not force_feishu_push:
         print("今日飞书日报已成功推送过，跳过重复推送")
     else:
+        if force_feishu_push:
+            print("FORCE_FEISHU_PUSH enabled; sending Feishu report even though today's report may already be marked successful.")
+
         feishu_summary = build_feishu_summary(
             all_records,
             new_items,
