@@ -1,0 +1,7 @@
+requests
+beautifulsoup4
+gspread
+discord.py
+google-auth
+google-play-scraper
+app-store-scraper
