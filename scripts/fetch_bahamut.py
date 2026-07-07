@@ -1644,6 +1644,8 @@ def update_weekly_report(report_sheet, all_records, new_items, trend_insights, c
 
 
 def build_feishu_summary(all_records, new_items, trend_insights, current_snapshot, previous_history, event_rows):
+    quiet_mode = current_snapshot["new_count"] == 0
+
     (
         source_counter, topic_counter, sentiment_counter, keyword_counter,
         demand_counter, product_demand_counter, action_counter,
@@ -1713,6 +1715,7 @@ def build_feishu_summary(all_records, new_items, trend_insights, current_snapsho
     )
 
     return {
+        "quiet_mode": quiet_mode,
         "total": current_snapshot["total"],
         "new_count": current_snapshot["new_count"],
         "risk_count": current_snapshot["risk_count"],
@@ -1723,6 +1726,10 @@ def build_feishu_summary(all_records, new_items, trend_insights, current_snapsho
         "top_three_text": "\n".join([f"{i+1}. {x}" for i, x in enumerate(top_three)]),
         "event_lifecycle_text": build_event_lifecycle_text(event_rows, 5),
         "alert_text": "\n".join([f"- {level}｜{text}" for level, text in alerts]),
+        "quiet_note_text": (
+            "本次没有新增舆情，飞书日报已切换为安静模式：仅推送状态、预警和生命周期摘要；"
+            "累计TOP、旧原声和存量建议保留在完整舆情看板中，避免每天重复打扰。"
+        ),
         "ai_summary_text": "\n".join([f"{i+1}. {s}" for i, s in enumerate(ai_summaries)]),
         "true_risk_text": "\n".join([
             f"- {event}：{count}次｜{risk_event_meta.get(event, {}).get('level', '高')}｜{risk_event_meta.get(event, {}).get('owner', '运营')}"
@@ -1797,6 +1804,52 @@ def send_feishu_message(summary):
         print("未配置 FEISHU_WEBHOOK，跳过飞书推送")
         return False, "missing webhook"
 
+    elements = [
+        {"tag": "div", "text": {"tag": "lark_md", "content": (
+            f"**风险等级：** {summary['risk_level']}\n"
+            f"**总数据量：** {summary['total']}\n"
+            f"**本次新增：** {summary['new_count']}\n"
+            f"**真实风险数量：** {summary['risk_count']}\n"
+            f"**真实风险占比：** {summary['risk_rate']}"
+        )}},
+        {"tag": "hr"},
+        {"tag": "div", "text": {"tag": "lark_md", "content": f"**数据源抓取状态**\n{summary['run_issue_text']}"}},
+        {"tag": "div", "text": {"tag": "lark_md", "content": f"**一、今日最重要的3件事**\n{summary['top_three_text']}"}},
+        {"tag": "div", "text": {"tag": "lark_md", "content": f"**二、事件生命周期追踪**\n{summary['event_lifecycle_text']}"}},
+        {"tag": "div", "text": {"tag": "lark_md", "content": f"**三、预警中心**\n{summary['alert_text']}"}},
+    ]
+
+    if summary.get("quiet_mode"):
+        elements.append({"tag": "div", "text": {"tag": "lark_md", "content": f"**安静模式说明**\n{summary['quiet_note_text']}"}})
+    else:
+        elements.extend([
+            {"tag": "div", "text": {"tag": "lark_md", "content": f"**四、AI运营摘要**\n{summary['ai_summary_text']}"}},
+            {"tag": "div", "text": {"tag": "lark_md", "content": f"**五、真实风险事件TOP5**\n{summary['true_risk_text']}"}},
+            {"tag": "div", "text": {"tag": "lark_md", "content": f"**六、规则说明/FAQ问题TOP5**\n{summary['faq_event_text']}"}},
+            {"tag": "div", "text": {"tag": "lark_md", "content": f"**七、问题聚类TOP10**\n{summary['cluster_text']}"}},
+            {"tag": "div", "text": {"tag": "lark_md", "content": f"**八、运营行动清单**\n{summary['action_plan_text']}"}},
+            {"tag": "div", "text": {"tag": "lark_md", "content": f"**九、自动FAQ草稿**\n{summary['faq_text']}"}},
+            {"tag": "div", "text": {"tag": "lark_md", "content": f"**十、Discord频道健康度**\n{summary['channel_health_text']}"}},
+            {"tag": "div", "text": {"tag": "lark_md", "content": f"**十一、平台负面率对比**\n{summary['platform_text']}"}},
+            {"tag": "div", "text": {"tag": "lark_md", "content": f"**十二、产品需求TOP10**\n{summary['product_demand_text']}"}},
+            {"tag": "div", "text": {"tag": "lark_md", "content": f"**十三、本次新增有效问题TOP5**\n{summary['new_topic_text']}"}},
+            {"tag": "div", "text": {"tag": "lark_md", "content": f"**十四、本次新增问题聚类TOP5**\n{summary['new_cluster_text']}"}},
+            {"tag": "div", "text": {"tag": "lark_md", "content": f"**十五、BUG原声TOP3**\n{summary['bug_voice_text']}"}},
+            {"tag": "div", "text": {"tag": "lark_md", "content": f"**十六、付费原声TOP3**\n{summary['pay_voice_text']}"}},
+            {"tag": "div", "text": {"tag": "lark_md", "content": f"**十七、建议原声TOP3**\n{summary['suggest_voice_text']}"}},
+            {"tag": "div", "text": {"tag": "lark_md", "content": f"**十八、趋势变化分析**\n{summary['trend_text']}"}},
+            {"tag": "div", "text": {"tag": "lark_md", "content": f"**十九、有效问题TOP5**\n{summary['topic_text']}"}},
+            {"tag": "div", "text": {"tag": "lark_md", "content": f"**二十、热门关键词TOP10**\n{summary['keyword_text']}"}},
+            {"tag": "div", "text": {"tag": "lark_md", "content": f"**二十一、运营建议**\n{summary['suggestion_text']}"}},
+        ])
+
+    elements.append({"tag": "action", "actions": [{
+        "tag": "button",
+        "text": {"tag": "plain_text", "content": "查看完整舆情看板"},
+        "url": SHEET_URL,
+        "type": "primary"
+    }]})
+
     card = {
         "msg_type": "interactive",
         "card": {
@@ -1805,44 +1858,7 @@ def send_feishu_message(summary):
                 "title": {"tag": "plain_text", "content": f"《{GAME_NAME}》运营决策日报 V8.2"},
                 "template": "blue"
             },
-            "elements": [
-                {"tag": "div", "text": {"tag": "lark_md", "content": (
-                    f"**风险等级：** {summary['risk_level']}\n"
-                    f"**总数据量：** {summary['total']}\n"
-                    f"**本次新增：** {summary['new_count']}\n"
-                    f"**真实风险数量：** {summary['risk_count']}\n"
-                    f"**真实风险占比：** {summary['risk_rate']}"
-                )}},
-                {"tag": "hr"},
-                {"tag": "div", "text": {"tag": "lark_md", "content": f"**数据源抓取状态**\n{summary['run_issue_text']}"}},
-                {"tag": "div", "text": {"tag": "lark_md", "content": f"**一、今日最重要的3件事**\n{summary['top_three_text']}"}},
-                {"tag": "div", "text": {"tag": "lark_md", "content": f"**二、事件生命周期追踪**\n{summary['event_lifecycle_text']}"}},
-                {"tag": "div", "text": {"tag": "lark_md", "content": f"**三、预警中心**\n{summary['alert_text']}"}},
-                {"tag": "div", "text": {"tag": "lark_md", "content": f"**四、AI运营摘要**\n{summary['ai_summary_text']}"}},
-                {"tag": "div", "text": {"tag": "lark_md", "content": f"**五、真实风险事件TOP5**\n{summary['true_risk_text']}"}},
-                {"tag": "div", "text": {"tag": "lark_md", "content": f"**六、规则说明/FAQ问题TOP5**\n{summary['faq_event_text']}"}},
-                {"tag": "div", "text": {"tag": "lark_md", "content": f"**七、问题聚类TOP10**\n{summary['cluster_text']}"}},
-                {"tag": "div", "text": {"tag": "lark_md", "content": f"**八、运营行动清单**\n{summary['action_plan_text']}"}},
-                {"tag": "div", "text": {"tag": "lark_md", "content": f"**九、自动FAQ草稿**\n{summary['faq_text']}"}},
-                {"tag": "div", "text": {"tag": "lark_md", "content": f"**十、Discord频道健康度**\n{summary['channel_health_text']}"}},
-                {"tag": "div", "text": {"tag": "lark_md", "content": f"**十一、平台负面率对比**\n{summary['platform_text']}"}},
-                {"tag": "div", "text": {"tag": "lark_md", "content": f"**十二、产品需求TOP10**\n{summary['product_demand_text']}"}},
-                {"tag": "div", "text": {"tag": "lark_md", "content": f"**十三、本次新增有效问题TOP5**\n{summary['new_topic_text']}"}},
-                {"tag": "div", "text": {"tag": "lark_md", "content": f"**十四、本次新增问题聚类TOP5**\n{summary['new_cluster_text']}"}},
-                {"tag": "div", "text": {"tag": "lark_md", "content": f"**十五、BUG原声TOP3**\n{summary['bug_voice_text']}"}},
-                {"tag": "div", "text": {"tag": "lark_md", "content": f"**十六、付费原声TOP3**\n{summary['pay_voice_text']}"}},
-                {"tag": "div", "text": {"tag": "lark_md", "content": f"**十七、建议原声TOP3**\n{summary['suggest_voice_text']}"}},
-                {"tag": "div", "text": {"tag": "lark_md", "content": f"**十八、趋势变化分析**\n{summary['trend_text']}"}},
-                {"tag": "div", "text": {"tag": "lark_md", "content": f"**十九、有效问题TOP5**\n{summary['topic_text']}"}},
-                {"tag": "div", "text": {"tag": "lark_md", "content": f"**二十、热门关键词TOP10**\n{summary['keyword_text']}"}},
-                {"tag": "div", "text": {"tag": "lark_md", "content": f"**二十一、运营建议**\n{summary['suggestion_text']}"}},
-                {"tag": "action", "actions": [{
-                    "tag": "button",
-                    "text": {"tag": "plain_text", "content": "查看完整舆情看板"},
-                    "url": SHEET_URL,
-                    "type": "primary"
-                }]}
-            ]
+            "elements": elements
         }
     }
 
