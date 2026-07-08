@@ -1017,6 +1017,32 @@ def build_event_lifecycle_text(event_rows, limit=5):
     return "\n".join(lines)
 
 
+def build_low_signal_event_text(event_rows, limit=3):
+    if not event_rows:
+        return "- 暂无持续追踪事件"
+
+    action_rows = [
+        row for row in event_rows
+        if int(row[12]) > 0 or row[3] == "true_risk" or "建议归档" in str(row[13])
+    ]
+    action_rows.sort(key=lambda x: (int(x[12]), int(x[9])), reverse=True)
+
+    lines = []
+    for row in action_rows[:limit]:
+        event_id, name, subtypes, kind, level, owner, first_seen, last_seen, duration, total, last_total, cumulative_delta, batch_new, status, updated_at = row
+        if int(batch_new) > 0:
+            lines.append(f"- {name}｜本次新增{batch_new}｜累计{total}｜{owner}")
+        elif "建议归档" in str(status):
+            lines.append(f"- {name}｜连续低活跃｜累计{total}｜建议归档到周报")
+        else:
+            lines.append(f"- {name}｜存量P0观察｜累计{total}｜本次无新增｜{owner}")
+
+    if not lines:
+        return "- 本次无新增事件，存量事件保留在完整看板中。"
+
+    return "\n".join(lines)
+
+
 def build_explosion_alerts(event_rows):
     alerts = []
 
@@ -1644,7 +1670,9 @@ def update_weekly_report(report_sheet, all_records, new_items, trend_insights, c
 
 
 def build_feishu_summary(all_records, new_items, trend_insights, current_snapshot, previous_history, event_rows):
-    quiet_mode = current_snapshot["new_count"] == 0
+    new_count = current_snapshot["new_count"]
+    new_risk_count = current_snapshot.get("new_risk_count", 0)
+    low_signal_mode = new_count <= 3 and new_risk_count == 0
 
     (
         source_counter, topic_counter, sentiment_counter, keyword_counter,
@@ -1714,8 +1742,37 @@ def build_feishu_summary(all_records, new_items, trend_insights, current_snapsho
         current_snapshot.get("new_risk_count", current_snapshot["risk_count"]), current_snapshot["risk_level"], event_rows
     )
 
+    low_signal_summary_lines = [
+        f"本次新增 {new_count} 条，新增真实风险 {new_risk_count} 条，未触发新增高风险预警。",
+    ]
+    if new_issue_cluster_counter:
+        cluster, count = new_issue_cluster_counter.most_common(1)[0]
+        low_signal_summary_lines.append(f"新增主要集中在「{cluster}」({count}次)，建议作为轻量观察项。")
+    elif new_filtered_topic_counter:
+        topic, count = new_filtered_topic_counter.most_common(1)[0]
+        low_signal_summary_lines.append(f"新增有效问题为「{topic}」({count}次)，暂不升级为专项。")
+    else:
+        low_signal_summary_lines.append("本次没有新增有效问题聚类，累计榜单仅保留在完整看板中。")
+
+    low_signal_voice_lines = []
+    for label, key in [("BUG", "BUG原声TOP3"), ("付费", "付费原声TOP3"), ("建议", "建议原声TOP3")]:
+        voices = grouped_voices.get(key, [])
+        if voices:
+            title, topic, source, url = voices[0]
+            low_signal_voice_lines.append(f"- {label}：[{source}] {strip_prefix(title)[:80]}")
+
+    if not low_signal_voice_lines:
+        low_signal_voice_lines.append("- 本次暂无值得单独跟进的新增原声。")
+
+    low_signal_action_lines = []
+    if action_plan:
+        p, item, count, owner, action = action_plan[0]
+        low_signal_action_lines.append(f"- 存量待办：{item}｜{p}｜{owner}｜累计/命中{count}次")
+    low_signal_action_lines.append("- 累计TOP、旧原声、产品需求榜和热门关键词已收纳到完整看板，日报不重复展开。")
+
     return {
-        "quiet_mode": quiet_mode,
+        "quiet_mode": current_snapshot["new_count"] == 0,
+        "low_signal_mode": low_signal_mode,
         "total": current_snapshot["total"],
         "new_count": current_snapshot["new_count"],
         "risk_count": current_snapshot["risk_count"],
@@ -1725,11 +1782,15 @@ def build_feishu_summary(all_records, new_items, trend_insights, current_snapsho
         "run_issue_text": format_run_issues(),
         "top_three_text": "\n".join([f"{i+1}. {x}" for i, x in enumerate(top_three)]),
         "event_lifecycle_text": build_event_lifecycle_text(event_rows, 5),
+        "low_signal_event_text": build_low_signal_event_text(event_rows, 3),
         "alert_text": "\n".join([f"- {level}｜{text}" for level, text in alerts]),
         "quiet_note_text": (
-            "本次没有新增舆情，飞书日报已切换为安静模式：仅推送状态、预警和生命周期摘要；"
+            "本次新增较少且没有新增真实风险，飞书日报已切换为低新增模式：仅推送新增摘要、轻量观察项和存量待办；"
             "累计TOP、旧原声和存量建议保留在完整舆情看板中，避免每天重复打扰。"
         ),
+        "low_signal_summary_text": "\n".join([f"{i+1}. {s}" for i, s in enumerate(low_signal_summary_lines)]),
+        "low_signal_voice_text": "\n".join(low_signal_voice_lines),
+        "low_signal_action_text": "\n".join(low_signal_action_lines),
         "ai_summary_text": "\n".join([f"{i+1}. {s}" for i, s in enumerate(ai_summaries)]),
         "true_risk_text": "\n".join([
             f"- {event}：{count}次｜{risk_event_meta.get(event, {}).get('level', '高')}｜{risk_event_meta.get(event, {}).get('owner', '运营')}"
@@ -1809,20 +1870,28 @@ def send_feishu_message(summary):
             f"**风险等级：** {summary['risk_level']}\n"
             f"**总数据量：** {summary['total']}\n"
             f"**本次新增：** {summary['new_count']}\n"
+            f"**新增真实风险：** {summary['new_risk_count']}\n"
             f"**真实风险数量：** {summary['risk_count']}\n"
             f"**真实风险占比：** {summary['risk_rate']}"
         )}},
         {"tag": "hr"},
         {"tag": "div", "text": {"tag": "lark_md", "content": f"**数据源抓取状态**\n{summary['run_issue_text']}"}},
-        {"tag": "div", "text": {"tag": "lark_md", "content": f"**一、今日最重要的3件事**\n{summary['top_three_text']}"}},
-        {"tag": "div", "text": {"tag": "lark_md", "content": f"**二、事件生命周期追踪**\n{summary['event_lifecycle_text']}"}},
-        {"tag": "div", "text": {"tag": "lark_md", "content": f"**三、预警中心**\n{summary['alert_text']}"}},
     ]
 
-    if summary.get("quiet_mode"):
+    if summary.get("low_signal_mode"):
+        elements.extend([
+            {"tag": "div", "text": {"tag": "lark_md", "content": f"**一、今日新增摘要**\n{summary['low_signal_summary_text']}"}},
+            {"tag": "div", "text": {"tag": "lark_md", "content": f"**二、本次新增问题**\n{summary['new_topic_text']}\n{summary['new_cluster_text']}"}},
+            {"tag": "div", "text": {"tag": "lark_md", "content": f"**三、本次新增原声**\n{summary['low_signal_voice_text']}"}},
+            {"tag": "div", "text": {"tag": "lark_md", "content": f"**四、存量待办摘要**\n{summary['low_signal_event_text']}\n{summary['low_signal_action_text']}"}},
+            {"tag": "div", "text": {"tag": "lark_md", "content": f"**五、预警中心**\n{summary['alert_text']}"}},
+        ])
         elements.append({"tag": "div", "text": {"tag": "lark_md", "content": f"**安静模式说明**\n{summary['quiet_note_text']}"}})
     else:
         elements.extend([
+            {"tag": "div", "text": {"tag": "lark_md", "content": f"**一、今日最重要的3件事**\n{summary['top_three_text']}"}},
+            {"tag": "div", "text": {"tag": "lark_md", "content": f"**二、事件生命周期追踪**\n{summary['event_lifecycle_text']}"}},
+            {"tag": "div", "text": {"tag": "lark_md", "content": f"**三、预警中心**\n{summary['alert_text']}"}},
             {"tag": "div", "text": {"tag": "lark_md", "content": f"**四、AI运营摘要**\n{summary['ai_summary_text']}"}},
             {"tag": "div", "text": {"tag": "lark_md", "content": f"**五、真实风险事件TOP5**\n{summary['true_risk_text']}"}},
             {"tag": "div", "text": {"tag": "lark_md", "content": f"**六、规则说明/FAQ问题TOP5**\n{summary['faq_event_text']}"}},
